@@ -75,7 +75,7 @@ android {
 
     buildFeatures {
         compose = true
-        if (project.hasProperty("dev")) {
+        if (project.hasProperty("dev") || project.hasProperty("btr")) {
             resValues = true
         }
     }
@@ -91,6 +91,16 @@ android {
                     type = "string",
                     name = "app_name",
                     value = "PiliPlus dev",
+                )
+            }
+            // BTR 分发变体：与官方版（com.example.piliplus）共存、且无 DEBUG 角标
+            // 构建：cd android && ./gradlew assembleRelease -Pbtr
+            if (project.hasProperty("btr")) {
+                applicationIdSuffix = ".btr"
+                resValue(
+                    type = "string",
+                    name = "app_name",
+                    value = "PiliPlus BTR",
                 )
             }
             proguardFiles(
