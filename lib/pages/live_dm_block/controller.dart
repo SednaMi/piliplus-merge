@@ -1,5 +1,6 @@
 import 'package:PiliPlus/http/live.dart';
 import 'package:PiliPlus/http/loading_state.dart';
+import 'package:PiliPlus/models/common/live/live_dm_silent_type.dart';
 import 'package:PiliPlus/models_new/live/live_dm_block/shield_user_list.dart';
 import 'package:PiliPlus/pages/live_room/controller.dart';
 import 'package:get/get.dart';
@@ -8,14 +9,14 @@ import 'package:material_ui/material_ui.dart';
 class LiveDmBlockController extends GetxController
     with GetSingleTickerProviderStateMixin {
   final roomId = Get.parameters['roomId']!;
-  LiveRoomController? _controller;
+  LiveRoomController? _liveRoomController;
 
   @override
   void onInit() {
     super.onInit();
     final args = Get.arguments;
     if (args is LiveRoomController) {
-      _controller = args;
+      _liveRoomController = args;
     }
     tabController = TabController(length: 2, vsync: this);
     queryData();
@@ -24,33 +25,86 @@ class LiveDmBlockController extends GetxController
   late final TabController tabController;
 
   bool _isLoaded = false;
+  int? oldLevel;
+  final RxInt level = 0.obs;
+  final RxInt rank = 0.obs;
+  final RxInt verify = 0.obs;
+  final RxBool isEnable = false.obs;
+
   final RxList<String> keywordList = <String>[].obs;
   final RxList<ShieldUserList> shieldUserList = <ShieldUserList>[].obs;
+
+  void updateValue() {
+    isEnable.value = level.value != 0 || rank.value != 0 || verify.value != 0;
+  }
 
   Future<void> queryData() async {
     final res = await LiveHttp.getLiveInfoByUser(roomId);
     if (res case Success(:final response)) {
       _isLoaded = true;
-      if (response == null) return;
-      if (response.keywordList case final list? when list.isNotEmpty) {
-        keywordList.addAll(list);
+      final shieldRules = response?.shieldRules;
+      level.value = shieldRules?.level ?? 0;
+      rank.value = shieldRules?.rank ?? 0;
+      verify.value = shieldRules?.verify ?? 0;
+      updateValue();
+
+      if (response?.keywordList case final keywordList?) {
+        this.keywordList.addAll(keywordList);
       }
-      if (response.shieldUserList case final list? when list.isNotEmpty) {
-        shieldUserList.addAll(list);
+      if (response?.shieldUserList case final shieldUserList?) {
+        this.shieldUserList.addAll(shieldUserList);
       }
     } else {
       res.toast();
     }
   }
 
-  void _updateLiveRoomRules() {
-    if (_isLoaded && _controller != null) {
-      _controller!.updateBlockRules(
-        keywordList.rawValue,
-        shieldUserList.map((e) => e.uid).toSet(),
-      );
+  Future<bool> setSilent(
+    LiveDmSilentType type,
+    int level, {
+    VoidCallback? onError,
+  }) async {
+    final res = await LiveHttp.liveSetSilent(type: type.name, level: level);
+    if (res.isSuccess) {
+      switch (type) {
+        case LiveDmSilentType.level:
+          this.level.value = level;
+        case LiveDmSilentType.rank:
+          rank.value = level;
+        case LiveDmSilentType.verify:
+          verify.value = level;
+      }
+      updateValue();
+      return true;
+    } else {
+      onError?.call();
+      res.toast();
+      return false;
     }
-    _controller = null;
+  }
+
+  Future<void> setEnable(bool enable) async {
+    if (enable == isEnable.value) {
+      return;
+    }
+    final futures = enable
+        ? [
+            setSilent(LiveDmSilentType.rank, 1),
+            setSilent(LiveDmSilentType.verify, 1),
+          ]
+        : [
+            for (final e in LiveDmSilentType.values) setSilent(e, 0),
+          ];
+    final res = await Future.wait(futures);
+    if (enable) {
+      if (res.any((e) => e)) {
+        isEnable.value = true;
+      }
+    } else {
+      if (res.every((e) => e)) {
+        isEnable.value = false;
+      }
+    }
   }
 
   Future<void> addShieldKeyword(bool isKeyword, String value) async {
@@ -96,6 +150,16 @@ class LiveDmBlockController extends GetxController
         res.toast();
       }
     }
+  }
+
+  void _updateLiveRoomRules() {
+    if (_isLoaded && _liveRoomController != null) {
+      _liveRoomController!.updateBlockRules(
+        keywordList.toList(growable: false),
+        shieldUserList.map((item) => item.uid).toSet(),
+      );
+    }
+    _liveRoomController = null;
   }
 
   @override

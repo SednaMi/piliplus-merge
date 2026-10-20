@@ -7,17 +7,23 @@ import 'package:PiliPlus/common/widgets/flutter/refresh_indicator.dart';
 import 'package:PiliPlus/common/widgets/image/network_img_layer.dart';
 import 'package:PiliPlus/common/widgets/player_bar.dart';
 import 'package:PiliPlus/http/loading_state.dart';
+import 'package:PiliPlus/models/common/mine_expand_content.dart';
 import 'package:PiliPlus/models/common/mine_tab_type.dart';
+import 'package:PiliPlus/pages/mine/widgets/history_item.dart';
+import 'package:PiliPlus/pages/mine/widgets/later_item.dart';
+import 'package:PiliPlus/pages/mine/widgets/sub_item.dart';
 import 'package:PiliPlus/models/common/nav_bar_config.dart';
+import 'package:PiliPlus/models_new/fav/fav_folder/data.dart';
+import 'package:PiliPlus/models_new/fav/fav_folder/list.dart';
+import 'package:PiliPlus/models_new/history/data.dart';
+import 'package:PiliPlus/models_new/history/list.dart';
 import 'package:PiliPlus/pages/common/common_page.dart';
 import 'package:PiliPlus/pages/home/view.dart';
 import 'package:PiliPlus/pages/login/controller.dart';
 import 'package:PiliPlus/pages/main/controller.dart';
 import 'package:PiliPlus/pages/mine/controller.dart';
 import 'package:PiliPlus/pages/mine/widgets/fav_item.dart';
-import 'package:PiliPlus/pages/mine/widgets/history_item.dart';
-import 'package:PiliPlus/pages/mine/widgets/later_item.dart';
-import 'package:PiliPlus/pages/mine/widgets/sub_item.dart';
+import 'package:PiliPlus/pages/mine/widgets/recent_history_item.dart';
 import 'package:PiliPlus/utils/bili_utils.dart';
 import 'package:PiliPlus/utils/extension/get_ext.dart';
 import 'package:PiliPlus/utils/extension/num_ext.dart';
@@ -77,38 +83,72 @@ class _MediaPageState extends CommonPageState<MinePage>
   Widget build(BuildContext context) {
     super.build(context);
     final secondary = theme.colorScheme.secondary;
-    return Column(
-      children: [
-        Padding(
-          padding: const .symmetric(vertical: 10),
-          child: _buildHeaderActions,
-        ),
-        Expanded(
-          child: Material(
-            type: .transparency,
-            child: refreshIndicator(
-              onRefresh: controller.onRefresh,
-              child: onBuild(
-                ListView(
-                  padding: const .only(bottom: 150),
-                  physics: const AlwaysScrollableScrollPhysics(),
-                  children: [
-                    _buildUserInfo(theme, secondary),
-                    _buildActions(secondary),
-                    for (final tab in controller.mineTabs)
-                      switch (tab) {
-                        .favorite => Obx(_buildFav),
-                        .history => Obx(_buildHistory),
-                        .later => Obx(_buildLater),
-                        .sub => Obx(_buildSub),
-                      },
-                  ],
+    return ColoredBox(
+      color: theme.colorScheme.surface,
+      child: Column(
+        children: [
+          Padding(
+            padding: const .symmetric(vertical: 10),
+            child: _buildHeaderActions,
+          ),
+          Expanded(
+            child: Material(
+              type: .transparency,
+              child: refreshIndicator(
+                onRefresh: controller.onRefresh,
+                child: onBuild(
+                  ListView(
+                    padding: const .only(bottom: 100),
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    children: [
+                      Padding(
+                        padding: const .symmetric(vertical: 12),
+                        child: _buildUserInfo(theme, secondary),
+                      ),
+                      Obx(
+                        () => Padding(
+                          padding: const .symmetric(vertical: 4),
+                          child: _buildActions(secondary),
+                        ),
+                      ),
+                      if (!controller.hasConfiguredTabs)
+                        Obx(
+                          () => controller.loadingState.value is Loading
+                              ? const SizedBox.shrink()
+                              : _buildExpandContent(theme, secondary),
+                        )
+                      else
+                        for (final tab in controller.mineTabs)
+                          switch (tab) {
+                            .favorite => Obx(_buildFav),
+                            .history => Obx(_buildHistory),
+                            .later => Obx(_buildLater),
+                            .sub => Obx(_buildSub),
+                          },
+                    ],
+                  ),
                 ),
               ),
             ),
           ),
-        ),
-      ],
+        ],
+      ),
+    );
+  }
+
+  Widget _sectionCard(
+    ThemeData theme, {
+    required Widget child,
+    EdgeInsetsGeometry padding = EdgeInsets.zero,
+  }) {
+    return Card(
+      margin: const .symmetric(horizontal: 8, vertical: 4),
+      color: theme.colorScheme.surfaceContainer,
+      elevation: 0,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      clipBehavior: Clip.antiAlias,
+      semanticContainer: false,
+      child: Padding(padding: padding, child: child),
     );
   }
 
@@ -229,9 +269,9 @@ class _MediaPageState extends CommonPageState<MinePage>
   }
 
   Widget _buildUserInfo(ThemeData theme, Color secondary) {
-    final style = TextStyle(
-      fontSize: theme.textTheme.titleMedium!.fontSize,
-      fontWeight: FontWeight.bold,
+    const style = TextStyle(
+      fontSize: 17,
+      fontWeight: FontWeight.w500,
     );
     final labelStyle = theme.textTheme.labelMedium!.copyWith(
       color: theme.colorScheme.outline,
@@ -379,31 +419,35 @@ class _MediaPageState extends CommonPageState<MinePage>
             ),
           ),
           const SizedBox(height: 10),
-          Row(
-            mainAxisAlignment: .spaceEvenly,
-            children: [
-              _btn(
-                count: userStat.dynamicCount,
-                countStyle: style,
-                name: '动态',
-                labelStyle: labelStyle,
-                onTap: () => controller.push('memberDynamics'),
-              ),
-              _btn(
-                count: userStat.following,
-                countStyle: style,
-                name: '关注',
-                labelStyle: labelStyle,
-                onTap: () => controller.push('follow'),
-              ),
-              _btn(
-                count: userStat.follower,
-                countStyle: style,
-                name: '粉丝',
-                labelStyle: labelStyle,
-                onTap: () => controller.push('fan'),
-              ),
-            ],
+          _sectionCard(
+            theme,
+            padding: const EdgeInsets.symmetric(vertical: 6),
+            child: Row(
+              mainAxisAlignment: .spaceEvenly,
+              children: [
+                _btn(
+                  count: userStat.dynamicCount,
+                  countStyle: style,
+                  name: '动态',
+                  labelStyle: labelStyle,
+                  onTap: () => controller.push('memberDynamics'),
+                ),
+                _btn(
+                  count: userStat.following,
+                  countStyle: style,
+                  name: '关注',
+                  labelStyle: labelStyle,
+                  onTap: () => controller.push('follow'),
+                ),
+                _btn(
+                  count: userStat.follower,
+                  countStyle: style,
+                  name: '粉丝',
+                  labelStyle: labelStyle,
+                  onTap: () => controller.push('fan'),
+                ),
+              ],
+            ),
           ),
         ],
       );
@@ -417,39 +461,145 @@ class _MediaPageState extends CommonPageState<MinePage>
     required TextStyle? labelStyle,
     required VoidCallback onTap,
   }) {
-    return Flexible(
+    return Expanded(
       child: InkWell(
         onTap: onTap,
         borderRadius: Style.mdRadius,
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 80),
-          child: AspectRatio(
-            aspectRatio: 1,
-            child: Column(
-              spacing: 4,
-              mainAxisSize: .min,
-              mainAxisAlignment: .center,
-              children: [
-                Text(
-                  count?.toString() ?? '-',
-                  style: countStyle,
-                ),
-                Text(
-                  name,
-                  style: labelStyle,
-                ),
-              ],
-            ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          child: Column(
+            spacing: 4,
+            mainAxisSize: .min,
+            mainAxisAlignment: .center,
+            children: [
+              Text(
+                count?.toString() ?? '-',
+                style: countStyle,
+              ),
+              Text(
+                name,
+                style: labelStyle,
+              ),
+            ],
           ),
         ),
       ),
     );
   }
 
-  void _autoRefresh(MineRefreshMixin tabCtr) => Timer(
+  void _autoRefresh([MineRefreshMixin? tabCtr]) => Timer(
     const Duration(milliseconds: 150),
-    () => tabCtr.onRefresh(isManual: false),
+    () => tabCtr != null
+        ? tabCtr.onRefresh(isManual: false)
+        : controller.onRefresh(isManual: false),
   );
+
+  Widget _buildExpandContent(ThemeData theme, Color secondary) {
+    final isHistory =
+        controller.expandContent.value == MineExpandContent.history;
+    final title = isHistory ? '最近播放' : '我的收藏';
+    final route = isHistory ? '/history' : '/fav';
+    return Column(
+      children: [
+        ListTile(
+          onTap: () => Get.toNamed(route)?.whenComplete(_autoRefresh),
+          dense: true,
+          title: Padding(
+            padding: const EdgeInsets.only(left: 10),
+            child: Text.rich(
+              TextSpan(
+                children: [
+                  TextSpan(
+                    text: '$title  ',
+                    style: TextStyle(
+                      fontSize: theme.textTheme.titleMedium!.fontSize,
+                      fontWeight: .bold,
+                    ),
+                  ),
+                  WidgetSpan(
+                    child: Icon(
+                      Icons.arrow_forward_ios,
+                      size: 18,
+                      color: secondary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          trailing: IconButton(
+            tooltip: '刷新',
+            onPressed: controller.onRefresh,
+            icon: const Icon(Icons.refresh, size: 20),
+          ),
+        ),
+        _buildExpandContentBody(controller.loadingState.value, isHistory),
+      ],
+    );
+  }
+
+  Widget _buildExpandContentBody(LoadingState loadingState, bool isHistory) {
+    return switch (loadingState) {
+      Loading() => const SizedBox.shrink(),
+      Success(:final response) => Builder(
+        builder: (context) {
+          if (isHistory) {
+            return _buildRecentHistoryBody(response as HistoryData);
+          }
+          return _buildFavoriteBody(response as FavFolderData);
+        },
+      ),
+      Error(:final errMsg) => SizedBox(
+        height: 160,
+        child: Center(
+          child: Text(
+            errMsg ?? '',
+            textAlign: .center,
+          ),
+        ),
+      ),
+    };
+  }
+
+  Widget _buildRecentHistoryBody(HistoryData data) {
+    final List<HistoryItemModel>? historyList = data.list;
+    if (historyList == null || historyList.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    return SizedBox(
+      height: 184,
+      child: ListView.separated(
+        controller: controller.scrollController,
+        padding: const .only(left: 20, top: 10, right: 20),
+        itemCount: historyList.length,
+        itemBuilder: (context, index) =>
+            RecentHistoryItem(item: historyList[index]),
+        scrollDirection: .horizontal,
+        separatorBuilder: (_, _) => const SizedBox(width: 14),
+      ),
+    );
+  }
+
+  Widget _buildFavoriteBody(FavFolderData data) {
+    final List<FavFolderInfo>? favoriteList = data.list;
+    if (favoriteList == null || favoriteList.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    return SizedBox(
+      height: 200,
+      child: ListView.separated(
+        controller: controller.scrollController,
+        padding: const .only(left: 20, top: 10, right: 20),
+        itemCount: favoriteList.length,
+        itemBuilder: (context, index) => FavFolderItem(
+          item: favoriteList[index],
+          onPop: _autoRefresh,
+        ),
+        scrollDirection: .horizontal,
+        separatorBuilder: (_, _) => const SizedBox(width: 14),
+      ),
+    );
+  }
 
   Widget _buildFav() {
     return _buildTab(

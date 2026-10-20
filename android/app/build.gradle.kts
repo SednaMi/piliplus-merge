@@ -3,6 +3,7 @@ import org.jetbrains.kotlin.konan.properties.Properties
 
 plugins {
     id("com.android.application")
+    id("org.jetbrains.kotlin.plugin.compose")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }
@@ -18,9 +19,11 @@ if (!isBuiltInKotlinEnabled) {
 }
 
 android {
-    namespace = "com.example.piliplus"
+    namespace = "com.aritxonly.hyperpiliplus"
+    sourceSets.getByName("main").java.srcDir(rootProject.file("third_party/miuix-glass/src/commonMain/kotlin"))
     compileSdk = 37
-    ndkVersion = flutter.ndkVersion
+    // Keep every native Flutter plugin on the installed, newest compatible NDK.
+    ndkVersion = "28.2.13676358"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -28,8 +31,10 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.example.piliplus"
-        minSdk = flutter.minSdkVersion
+        applicationId = "com.aritxonly.hyperpiliplus"
+        // Deadliner's original soft-glass bar uses miuix-blur, whose Android
+        // RuntimeShader path has an API 33 baseline.
+        minSdk = maxOf(flutter.minSdkVersion, 33)
         targetSdk = 37
         versionCode = flutter.versionCode
         versionName = flutter.versionName
@@ -43,18 +48,33 @@ android {
             it.load(properties.inputStream())
     }
 
-    val config = keyProperties.getProperty("storeFile")?.let {
+    val signingStore = System.getenv("ANDROID_SIGNING_STORE_FILE")
+        ?: keyProperties.getProperty("storeFile")
+    if (project.hasProperty("requireReleaseSigning")) {
+        require(!signingStore.isNullOrBlank()) { "Release signing keystore is required" }
+        for ((env, property) in listOf(
+            "KEYSTORE_PASSWORD" to "storePassword",
+            "KEY_ALIAS" to "keyAlias",
+            "KEY_PASSWORD" to "keyPassword",
+        )) {
+            require(!(System.getenv(env) ?: keyProperties.getProperty(property)).isNullOrBlank()) {
+                "Release signing field $property is required"
+            }
+        }
+    }
+    val config = signingStore?.let {
         signingConfigs.create("release") {
             storeFile = file(it)
-            storePassword = keyProperties.getProperty("storePassword")
-            keyAlias = keyProperties.getProperty("keyAlias")
-            keyPassword = keyProperties.getProperty("keyPassword")
+            storePassword = System.getenv("KEYSTORE_PASSWORD") ?: keyProperties.getProperty("storePassword")
+            keyAlias = System.getenv("KEY_ALIAS") ?: keyProperties.getProperty("keyAlias")
+            keyPassword = System.getenv("KEY_PASSWORD") ?: keyProperties.getProperty("keyPassword")
             enableV1Signing = true
             enableV2Signing = true
         }
     }
 
     buildFeatures {
+        compose = true
         if (project.hasProperty("dev")) {
             resValues = true
         }
@@ -91,12 +111,14 @@ android {
     }
 }
 
-kotlin {
-    compilerOptions {
-        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
-    }
-}
-
 flutter {
     source = "../.."
+}
+
+dependencies {
+    implementation("androidx.compose.material3:material3:1.5.0-alpha22")
+    implementation("top.yukonga.miuix.kmp:miuix-ui-android:0.9.4-rc01")
+    implementation("top.yukonga.miuix.kmp:miuix-blur-android:0.9.4-rc01")
+    implementation("top.yukonga.miuix.kmp:miuix-icons-android:0.9.4-rc01")
+    implementation("io.github.kyant0:shapes:1.2.0")
 }

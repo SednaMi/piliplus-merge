@@ -7,6 +7,7 @@ import 'package:PiliPlus/common/widgets/dialog/dialog.dart';
 import 'package:PiliPlus/common/widgets/emote_tooltip.dart'
     show enableEmoteTooltip;
 import 'package:PiliPlus/common/widgets/image/network_img_layer.dart';
+import 'package:PiliPlus/common/widgets/miuix_switch.dart';
 import 'package:PiliPlus/common/widgets/pendant_avatar.dart';
 import 'package:PiliPlus/common/widgets/scale_app.dart';
 import 'package:PiliPlus/common/widgets/scroll_physics.dart'
@@ -16,6 +17,7 @@ import 'package:PiliPlus/models/common/bar_hide_type.dart';
 import 'package:PiliPlus/models/common/dynamic/dynamic_badge_mode.dart';
 import 'package:PiliPlus/models/common/dynamic/up_panel_position.dart';
 import 'package:PiliPlus/models/common/home_tab_type.dart';
+import 'package:PiliPlus/models/common/mine_expand_content.dart';
 import 'package:PiliPlus/models/common/member/tab_type.dart';
 import 'package:PiliPlus/models/common/mine_tab_type.dart';
 import 'package:PiliPlus/models/common/msg/msg_unread_type.dart';
@@ -27,6 +29,8 @@ import 'package:PiliPlus/pages/mine/controller.dart';
 import 'package:PiliPlus/pages/setting/models/model.dart';
 import 'package:PiliPlus/pages/setting/slide_color_picker.dart';
 import 'package:PiliPlus/pages/setting/widgets/dual_slider_dialog.dart';
+import 'package:PiliPlus/pages/setting/widgets/app_icon_dialog.dart';
+import 'package:PiliPlus/pages/setting/widgets/glass_material_slider_dialog.dart';
 import 'package:PiliPlus/pages/setting/widgets/multi_select_dialog.dart';
 import 'package:PiliPlus/pages/setting/widgets/ordered_multi_select_dialog.dart';
 import 'package:PiliPlus/pages/setting/widgets/select_dialog.dart';
@@ -68,6 +72,24 @@ List<SettingsModel> get styleSettings => [
     ),
   ],
   if (Platform.isLinux) _useSSDModel(),
+  if (Platform.isAndroid)
+    NormalModel(
+      title: '应用图标',
+      featured: true,
+      leading: const Icon(Icons.apps_rounded),
+      getSubtitle: () => '当前：${Pref.appIconStyle.label}',
+      onTap: (context, setState) async {
+        final applied = await showDialog<bool>(
+          context: context,
+          barrierDismissible: false,
+          builder: (_) => const AppIconDialog(),
+        );
+        if (applied == true && context.mounted) {
+          setState();
+          SmartDialog.showToast('图标已切换，桌面可能稍后刷新');
+        }
+      },
+    ),
   SwitchModel(
     title: '横屏适配',
     subtitle: '启用横屏布局与逻辑，平板、折叠屏等可开启；建议全屏方向设为【不改变当前方向】',
@@ -86,6 +108,7 @@ List<SettingsModel> get styleSettings => [
   ),
   NormalModel(
     title: 'App字体设置',
+    featured: true,
     subtitle: '点击设置',
     leading: const Icon(Icons.text_fields),
     onTap: (context, setState) => Get.toNamed('/fontSetting'),
@@ -125,9 +148,44 @@ List<SettingsModel> get styleSettings => [
     needReboot: true,
   ),
   const SwitchModel(
-    title: '悬浮底栏',
+    title: '柔光玻璃底栏',
+    featured: true,
     leading: Icon(MdiIcons.soundbar),
     setKey: SettingBoxKey.floatingNavBar,
+    defaultVal: true,
+    needReboot: true,
+  ),
+  NormalModel(
+    featured: true,
+    title: '柔光玻璃通透程度',
+    getSubtitle: () => '模糊大小：${Pref.glassBlurRadius.round()}（默认 84）',
+    leading: const Icon(Icons.blur_on_rounded),
+    onTap: _showGlassMaterialDialog,
+  ),
+  NormalModel(
+    title: '悬浮底栏底部高度',
+    featured: true,
+    getSubtitle: () => Pref.followMyHyperModifierNavigationLift
+        ? '跟随 HyperModifier 全局抬高'
+        : '当前：${Pref.floatingNavBottomLift.toStringAsFixed(0)} dp',
+    leading: const Icon(Icons.vertical_align_top_rounded),
+    onTap: _showFloatingNavigationLiftDialog,
+  ),
+  const SwitchModel(
+    title: '跟随 HyperModifier 全局抬高',
+    featured: true,
+    subtitle: '读取 HyperGlassify 全局值并覆盖本地底部高度',
+    leading: Icon(Icons.sync_rounded),
+    setKey: SettingBoxKey.followMyHyperModifierNavigationLift,
+    defaultVal: false,
+    needReboot: true,
+  ),
+  const SwitchModel(
+    title: '底栏背板调试面板',
+    featured: true,
+    subtitle: '显示 PixelCopy 原图、坐标、帧数和采样耗时',
+    leading: Icon(Icons.bug_report_outlined),
+    setKey: SettingBoxKey.miuixBackdropSampling,
     defaultVal: false,
     needReboot: true,
   ),
@@ -350,15 +408,18 @@ List<SettingsModel> get styleSettings => [
     onTap: (context, setState) => Get.toNamed('/colorSetting'),
     leading: const Icon(Icons.color_lens_outlined),
     title: '应用主题',
-    getSubtitle: () => '当前主题：${Pref.dynamicColor ? '动态取色' : '指定颜色'}',
-    getTrailing: _themeTrailing,
-  ),
-  NormalModel(
-    onTap: _showMineTabsDialog,
-    title: '我的页卡片',
-    leading: const Icon(Icons.person_outline),
-    getSubtitle: () =>
-        '当前显示：${Pref.mineTabs.map((item) => item.label).join('、')}',
+    featured: true,
+    getSubtitle: () => '当前主题：${colorThemeTypes[Pref.customColor].label}',
+    getTrailing: (theme) => SizedBox.square(
+      dimension: 20,
+      child: ColorPalette(
+        colorScheme: colorThemeTypes[Pref.customColor]
+            .colorFor(theme.brightness)
+            .asMiuixPresetColorScheme(theme.brightness),
+        selected: false,
+        showBgColor: false,
+      ),
+    ),
   ),
   PopupModel(
     leading: const Icon(Icons.home_outlined),
@@ -370,6 +431,26 @@ List<SettingsModel> get styleSettings => [
           .put(SettingBoxKey.defaultHomePage, value.index)
           .whenComplete(setState);
       SmartDialog.showToast('重启生效');
+    },
+  ),
+  NormalModel(
+    onTap: _showMineTabsDialog,
+    title: '我的页卡片',
+    leading: const Icon(Icons.person_outline),
+    getSubtitle: () => '自定义多卡片展示，重启生效',
+  ),
+  PopupModel(
+    title: '我的页展开内容',
+    featured: true,
+    leading: const Icon(Icons.account_box_outlined),
+    value: () => Pref.mineExpandContent,
+    items: MineExpandContent.values,
+    onSelected: (value, setState) {
+      Pref.mineExpandContent = value;
+      if (Get.isRegistered<MineController>()) {
+        Get.find<MineController>().onExpandContentChanged(value);
+      }
+      setState();
     },
   ),
   const NormalModel(
@@ -418,6 +499,42 @@ List<SettingsModel> get styleSettings => [
       leading: const Icon(Icons.autofps_select_outlined),
     ),
 ];
+
+Future<void> _showGlassMaterialDialog(
+  BuildContext context,
+  VoidCallback setState,
+) async {
+  final value = await showDialog<double>(
+    context: context,
+    builder: (_) => GlassMaterialSliderDialog(value: Pref.glassBlurRadius),
+  );
+  if (value == null) return;
+  await GStorage.setting.put(SettingBoxKey.glassBlurRadius, value);
+  if (context.mounted) setState();
+}
+
+void _showFloatingNavigationLiftDialog(
+  BuildContext context,
+  VoidCallback setState,
+) {
+  showDialog<double>(
+    context: context,
+    builder: (context) => SliderDialog(
+      value: Pref.floatingNavBottomLift,
+      title: const Text('悬浮底栏底部高度'),
+      min: 0,
+      max: 48,
+      divisions: 48,
+      suffix: ' dp',
+      precise: 0,
+    ),
+  ).then((value) {
+    if (value == null) return;
+    GStorage.setting.put(SettingBoxKey.floatingNavBottomLift, value);
+    setState();
+    SmartDialog.showToast('设置成功');
+  });
+}
 
 void _showQualityDialog({
   required BuildContext context,
@@ -724,7 +841,7 @@ Future<void> _showCardWidthDialog(
 }
 
 void _setDynBadge(DynamicBadgeMode value, VoidCallback setState) {
-  final mainController = Get.find<MainController>()..dynamicBadgeMode = value;
+  final mainController = Get.find<MainController>()..setDynamicBadgeMode(value);
   if (value != DynamicBadgeMode.hidden) mainController.getUnreadDynamic();
   GStorage.setting
       .put(SettingBoxKey.dynamicBadgeMode, value.index)
@@ -862,35 +979,11 @@ NormalModel _useSSDModel() {
     leading: const Icon(Icons.web_asset),
     onTap: onChanged,
     getTrailing: (theme) => Builder(
-      builder: (context) => Transform.scale(
-        scale: 0.8,
-        alignment: .centerRight,
-        child: Switch(
-          value: file.existsSync(),
-          onChanged: (_) =>
-              onChanged(context, (context as Element).markNeedsBuild),
-        ),
+      builder: (context) => PiliMiuixSwitch(
+        value: file.existsSync(),
+        onChanged: (_) =>
+            onChanged(context, (context as Element).markNeedsBuild),
       ),
-    ),
-  );
-}
-
-Widget _themeTrailing(ThemeData theme) {
-  if (Pref.dynamicColor) {
-    return Icon(Icons.color_lens_rounded, color: theme.colorScheme.primary);
-  }
-  final customColor = Pref.customColor;
-  final color =
-      colorThemeTypes.elementAtOrNull(customColor)?.color ?? Color(customColor);
-  return SizedBox.square(
-    dimension: 20,
-    child: ColorPalette(
-      colorScheme: color.asColorSchemeSeed(
-        Pref.schemeVariant,
-        theme.brightness,
-      ),
-      selected: false,
-      showBgColor: false,
     ),
   );
 }

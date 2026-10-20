@@ -27,7 +27,8 @@ Widget dynTextMenuBuilder(
       ),
     );
   state.addLaunchMenuIfNeeded(buttonItems, index: 5);
-  return AdaptiveTextSelectionToolbar.buttonItems(
+  return NativeSelectionToolbar(
+    onDismiss: state.hideToolbar,
     buttonItems: buttonItems,
     anchors: state.contextMenuAnchors,
   );
@@ -106,5 +107,15 @@ void _showTextDialog(String text) {
         ),
       ),
     ),
+  );
+}
+
+Widget openUrlMenuBuilder(_, SelectableRegionState state) {
+  final buttonItems = state.contextMenuButtonItems;
+  state.addLaunchMenuIfNeeded(buttonItems, index: 3);
+  return NativeSelectionToolbar(
+    onDismiss: state.hideToolbar,
+    buttonItems: buttonItems,
+    anchors: state.contextMenuAnchors,
   );
 }

@@ -18,6 +18,7 @@ import 'package:PiliPlus/common/widgets/scroll_physics.dart'
 import 'package:PiliPlus/common/widgets/sliver/sliver_floating_header.dart';
 import 'package:PiliPlus/common/widgets/sliver/sliver_to_box_adapter.dart';
 import 'package:PiliPlus/common/widgets/tap_region_surface.dart';
+import 'package:PiliPlus/common/widgets/video_card/video_card_transition.dart';
 import 'package:PiliPlus/http/constants.dart';
 import 'package:PiliPlus/http/dynamics.dart';
 import 'package:PiliPlus/http/loading_state.dart';
@@ -98,6 +99,9 @@ class _DynamicDetailPageState extends CommonDynPageMultiState<DynamicDetailPage>
   }
 
   ScrollableState? _scrollable;
+  late final Object? _transitionTag = Get.arguments is Map
+      ? Get.arguments['heroTag']
+      : null;
 
   @override
   void dispose() {
@@ -107,10 +111,11 @@ class _DynamicDetailPageState extends CommonDynPageMultiState<DynamicDetailPage>
 
   @override
   Widget build(BuildContext context) {
-    return SelectionTapRegionSurface(
+    final page = SelectionTapRegionSurface(
       /// apply `lib/scripts/scrollable.patch`
       isScrolling: () => _scrollable?.shouldIgnorePointer ?? false,
       child: SimpleScaffold(
+        backgroundColor: theme.colorScheme.surfaceContainerLowest,
         appBar: _buildAppBar(),
         body: Padding(
           padding: EdgeInsets.only(left: padding.left, right: padding.right),
@@ -122,6 +127,14 @@ class _DynamicDetailPageState extends CommonDynPageMultiState<DynamicDetailPage>
         ),
       ),
     );
+    final tag = _transitionTag;
+    return tag == null
+        ? page
+        : VideoPageHeroTarget(
+            tag: tag,
+            surfaceColor: theme.colorScheme.surfaceContainerLowest,
+            child: page,
+          );
   }
 
   void _onEdit() {
@@ -663,7 +676,7 @@ class _DynamicDetailPageState extends CommonDynPageMultiState<DynamicDetailPage>
       ),
     );
     return SliverFloatingHeaderWidget(
-      backgroundColor: theme.colorScheme.surface,
+      backgroundColor: theme.colorScheme.surfaceContainerLowest,
       child: child,
     );
   }

@@ -1,0 +1,216 @@
+name: Hyper-PiliPlus Android Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish a GitHub Release (otherwise upload build artifacts only)
+        type: boolean
+        default: false
+  workflow_call:
+    inputs:
+      publish:
+        type: boolean
+        default: false
+      release_tag:
+        type: string
+        default: ''
+    secrets:
+      SIGN_KEYSTORE_BASE64:
+        required: true
+      KEYSTORE_PASSWORD:
+        required: true
+      KEY_ALIAS:
+        required: true
+      KEY_PASSWORD:
+        required: true
+      DEEPSEEK_API_KEY:
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hyper-android-release-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      release_notes: ${{ steps.release_notes.outputs.body }}
+    env:
+      # Match the hosted origin recorded in pubspec.lock.
+      PUB_HOSTED_URL: https://pub.dev
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          # Release notes compare the new flavor tag with the preceding one.
+          fetch-depth: 0
+      - name: Resolve flavor version
+        id: version
+        env:
+          PUBLISH: ${{ inputs.publish }}
+        run: |
+          args=(--github-output "$GITHUB_OUTPUT")
+          if [ "$PUBLISH" = "true" ]; then
+            args+=(--next-available-tag)
+          fi
+          python3 scripts/release_metadata.py "${args[@]}"
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: zulu
+          java-version: '17'
+      - name: Set up Android command-line tools
+        uses: android-actions/setup-android@v4
+        with:
+          packages: platform-tools
+      - name: Install pinned Flutter source
+        uses: actions/checkout@v7
+        with:
+          repository: flutter/flutter
+          ref: 9584c6713b324636289d067944a46fd6b49df14b
+          path: .fvm/flutter_sdk
+          persist-credentials: false
+      - name: Fetch and verify the pinned Flutter version tag
+        run: |
+          # A SHA-only shallow checkout omits tags; Flutter derives its version from them.
+          git -C .fvm/flutter_sdk fetch --no-tags --depth=1 origin refs/tags/3.47.4:refs/tags/3.47.4
+          test "$(git -C .fvm/flutter_sdk rev-parse 'refs/tags/3.47.4^{commit}')" = "$(git -C .fvm/flutter_sdk rev-parse HEAD)"
+      - name: Restore the verified Flutter patch
+        run: |
+          git -C .fvm/flutter_sdk apply --check "$GITHUB_WORKSPACE/tool/flutter-sdk.patch"
+          git -C .fvm/flutter_sdk apply "$GITHUB_WORKSPACE/tool/flutter-sdk.patch"
+          ./scripts/flutterw --check-sdk
+          # Bootstrap separately: the first launch can print non-JSON dependency logs.
+          ./scripts/flutterw --version
+          python3 - <<'PY'
+          import json, subprocess
+          # Flutter writes this structured cache before printing its version.
+          version = json.load(open(".fvm/flutter_sdk/bin/cache/flutter.version.json"))
+          expected = json.load(open(".fvmrc"))["flutter"]
+          if version["frameworkVersion"] != expected:
+              raise SystemExit("Unexpected Flutter version: " + version["frameworkVersion"])
+          revision = subprocess.check_output(
+              ["git", "-C", ".fvm/flutter_sdk", "rev-parse", "HEAD"], text=True).strip()
+          if version["frameworkRevision"] != revision:
+              raise SystemExit("Flutter version cache does not match the pinned SDK commit")
+          print("Verified Flutter " + expected)
+          PY
+          ./scripts/flutterw precache --android
+      - name: Install Android SDK components
+        run: |
+          command -v sdkmanager
+          test -n "$ANDROID_HOME"
+          # SDK package identifiers include the minor API version; Gradle still uses compileSdk = 37.
+          sdkmanager --sdk_root="$ANDROID_HOME" "platforms;android-37.0" "build-tools;36.0.0" "ndk;28.2.13676358"
+          test -f "$ANDROID_HOME/platforms/android-37.0/android.jar"
+      - name: Resolve locked dependencies and apply upstream package patches
+        run: |
+          ./scripts/flutterw pub get --enforce-lockfile
+          python3 scripts/prepare_android_ci.py
+      - name: Install Linux native dependencies for Flutter tests
+        run: |
+          # flutter test builds cnativeapi for the Ubuntu host, even for an Android release.
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends clang pkg-config libgtk-3-dev libx11-dev libxi-dev
+          pkg-config --cflags --libs gtk+-3.0 x11 xi
+      - name: Test release metadata and app
+        run: |
+          python3 -m unittest discover -s test/scripts -p '*_test.py'
+          ./scripts/flutterw test --no-pub
+      - name: Decode signing keystore
+        env:
+          SIGN_KEYSTORE_BASE64: ${{ secrets.SIGN_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          python3 - <<'PY'
+          import base64, os
+          from pathlib import Path
+          for name in ('SIGN_KEYSTORE_BASE64', 'KEYSTORE_PASSWORD', 'KEY_ALIAS', 'KEY_PASSWORD'):
+              if not os.environ.get(name):
+                  raise SystemExit('Missing required secret: ' + name)
+          path = Path(os.environ['RUNNER_TEMP']) / 'hyper-release.jks'
+          data = base64.b64decode(''.join(os.environ['SIGN_KEYSTORE_BASE64'].split()), validate=True)
+          if not data:
+              raise SystemExit('Empty signing keystore')
+          with path.open('xb') as output:
+              path.chmod(0o600)
+              output.write(data)
+          PY
+      - name: Build signed APKs
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          VERSION_CODE: ${{ steps.version.outputs.code }}
+          ANDROID_SIGNING_STORE_FILE: ${{ runner.temp }}/hyper-release.jks
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: >-
+          ./scripts/flutterw build apk --release --split-per-abi --no-pub
+          --build-name="$VERSION" --build-number="$VERSION_CODE"
+          --dart-define-from-file=pili_release.json
+          --android-project-arg requireReleaseSigning=true
+      - name: Verify and collect APKs
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          mkdir -p dist
+          for abi in arm64-v8a armeabi-v7a x86_64; do
+            apk="build/app/outputs/flutter-apk/app-${abi}-release.apk"
+            "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose "$apk"
+            cp "$apk" "dist/Hyper-PiliPlus_android_${VERSION}_${abi}.apk"
+          done
+          cp pili_release.json dist/release-metadata.json
+          cd dist
+          sha256sum *.apk > SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-signed-${{ steps.version.outputs.version }}
+          path: dist/*
+          if-no-files-found: error
+      - name: Generate release notes
+        id: release_notes
+        if: inputs.publish
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+        run: >-
+          python3 scripts/generate_release_notes.py
+          --version "${{ steps.version.outputs.version }}"
+          --sha "$GITHUB_SHA"
+          --github-output "$GITHUB_OUTPUT"
+      - name: Remove temporary keystore
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          (Path(os.environ['RUNNER_TEMP']) / 'hyper-release.jks').unlink(missing_ok=True)
+          PY
+  publish:
+    if: inputs.publish
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: android-signed-${{ needs.build.outputs.version }}
+          path: dist
+      - uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ needs.build.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: Hyper-PiliPlus ${{ needs.build.outputs.version }}
+          body: ${{ needs.build.outputs.release_notes }}
+          generate_release_notes: false
+          fail_on_unmatched_files: true
+          files: dist/*

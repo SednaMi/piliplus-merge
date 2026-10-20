@@ -70,6 +70,22 @@ abstract final class PiliScheme {
     return null;
   }
 
+  @visibleForTesting
+  static ({int? aid, String? bvid})? videoIdFromUri(Uri uri) {
+    final path = uri.path;
+    final queryParameters = uri.queryParameters;
+    final aid = int.tryParse(
+      uriDigitRegExp.firstMatch(path)?.group(1) ?? queryParameters['aid'] ?? '',
+    );
+    final bvid =
+        IdUtils.bvRegex.firstMatch(path)?.group(0) ??
+        IdUtils.bvRegexExact
+            .matchAsPrefix(queryParameters['bvid'] ?? '')
+            ?.group(0);
+    if (aid == null && bvid == null) return null;
+    return (aid: aid, bvid: bvid);
+  }
+
   static Future<bool> routePushFromUrl(
     String url, {
     bool selfHandle = false,
@@ -178,6 +194,32 @@ abstract final class PiliScheme {
               return true;
             }
             return false;
+          case 'story':
+            // bilibili://story/{aid}?cid={cid}&bvid={bvid}
+            // 竖屏视频有时只会携带 aid，有时只会在查询参数中携带 bvid。
+            final videoId = videoIdFromUri(uri);
+            if (videoId == null) return false;
+            final queryParameters = uri.queryParameters;
+            final cid = int.tryParse(queryParameters['cid'] ?? '');
+            if (cid != null) {
+              PageUtils.toVideoPage(
+                aid: videoId.aid,
+                bvid: videoId.bvid ?? IdUtils.av2bv(videoId.aid!),
+                cid: cid,
+                progress: _videoProgress(queryParameters),
+                isVertical: true,
+                off: off,
+              );
+            } else {
+              videoPush(
+                videoId.aid,
+                videoId.bvid,
+                off: off,
+                progress: _videoProgress(queryParameters),
+                isVertical: true,
+              );
+            }
+            return true;
           case 'live':
             // bilibili://live/12345678?extra_jump_from=1&from=1&is_room_feed=1&h5awaken=random
             String? roomId = uriDigitRegExp.firstMatch(path)?.group(1);
@@ -917,6 +959,7 @@ abstract final class PiliScheme {
     bool off = false,
     int? progress, // milliseconds
     String? part,
+    bool isVertical = false,
     int? rootRpId,
     int? secondRpId,
   }) async {
@@ -943,7 +986,7 @@ abstract final class PiliScheme {
           progress: progress,
           off: off,
           dimension: res!.dimension,
-          // title: res.title,
+          isVertical: isVertical,
           rootRpId: rootRpId,
           secondRpId: secondRpId,
         );

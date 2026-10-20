@@ -3,11 +3,13 @@ import 'package:PiliPlus/http/fav.dart';
 import 'package:PiliPlus/http/loading_state.dart';
 import 'package:PiliPlus/http/user.dart';
 import 'package:PiliPlus/models/common/account_type.dart';
-import 'package:PiliPlus/models/common/later_view_type.dart';
-import 'package:PiliPlus/models/common/mine_tab_type.dart';
+import 'package:PiliPlus/models/common/mine_expand_content.dart';
 import 'package:PiliPlus/models/common/theme/theme_type.dart';
 import 'package:PiliPlus/models/user/info.dart';
 import 'package:PiliPlus/models/user/stat.dart';
+import 'package:PiliPlus/pages/common/common_data_controller.dart';
+import 'package:PiliPlus/models/common/later_view_type.dart';
+import 'package:PiliPlus/models/common/mine_tab_type.dart';
 import 'package:PiliPlus/models_new/fav/fav_folder/data.dart';
 import 'package:PiliPlus/models_new/fav/fav_folder/list.dart';
 import 'package:PiliPlus/models_new/history/data.dart';
@@ -30,7 +32,8 @@ import 'package:get/get.dart';
 import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
 import 'package:material_ui/material_ui.dart';
 
-class MineController extends GetxController with AccountMixin {
+class MineController extends CommonDataController<Object, Object>
+    with AccountMixin {
   @override
   AccountService accountService = Get.find<AccountService>();
 
@@ -40,6 +43,7 @@ class MineController extends GetxController with AccountMixin {
   final Rx<UserStat> userStat = const UserStat().obs;
 
   final Rx<ThemeType> themeType = Pref.themeType.obs;
+  final Rx<MineExpandContent> expandContent = Pref.mineExpandContent.obs;
 
   ThemeType get nextThemeType =>
       ThemeType.values[(themeType.value.index + 1) % ThemeType.values.length];
@@ -47,42 +51,47 @@ class MineController extends GetxController with AccountMixin {
   static RxBool anonymity =
       (Accounts.account.isNotEmpty && !Accounts.heartbeat.isLogin).obs;
 
-  late final list = <({IconData icon, String title, VoidCallback onTap})>[
-    (
-      icon: CustomIcons.folderDownloadOutline,
-      title: '离线缓存',
-      onTap: () => Get.toNamed('/download'),
-    ),
-    (
-      icon: CustomIcons.history,
-      title: '观看记录',
-      onTap: () {
-        if (isLogin) {
-          Get.toNamed('/history');
-        }
-      },
-    ),
-    (
-      icon: CustomIcons.subscriptions_outlined,
-      title: '我的订阅',
-      onTap: () {
-        if (isLogin) {
-          Get.toNamed('/subscription');
-        }
-      },
-    ),
-    (
-      icon: CustomIcons.watch_later_outlined,
-      title: '稍后再看',
-      onTap: () {
-        if (isLogin) {
-          Get.toNamed('/later');
-        }
-      },
-    ),
-  ];
+  List<({IconData icon, String title, VoidCallback onTap})> get list {
+    final isHistory = expandContent.value == MineExpandContent.history;
+    return [
+      (
+        icon: CustomIcons.folderDownloadOutline,
+        title: '离线缓存',
+        onTap: () => Get.toNamed('/download'),
+      ),
+      (
+        icon: isHistory ? Icons.favorite_border_outlined : CustomIcons.history,
+        title: isHistory ? '我的收藏' : '观看记录',
+        onTap: () {
+          if (isLogin) {
+            Get.toNamed(isHistory ? '/fav' : '/history');
+          }
+        },
+      ),
+      (
+        icon: CustomIcons.subscriptions_outlined,
+        title: '我的订阅',
+        onTap: () {
+          if (isLogin) {
+            Get.toNamed('/subscription');
+          }
+        },
+      ),
+      (
+        icon: CustomIcons.watch_later_outlined,
+        title: '稍后再看',
+        onTap: () {
+          if (isLogin) {
+            Get.toNamed('/later');
+          }
+        },
+      ),
+    ];
+  }
 
   late final Set<MineTabType> mineTabs;
+  late final bool hasConfiguredTabs =
+      GStorage.setting.get(SettingBoxKey.mineTabs) != null;
   FavCtr? favCtr;
   HistoryCtr? historyCtr;
   LaterCtr? laterCtr;
@@ -96,7 +105,7 @@ class MineController extends GetxController with AccountMixin {
   }
 
   void _initTabs() {
-    mineTabs = Pref.mineTabs;
+    mineTabs = hasConfiguredTabs ? Pref.mineTabs : {};
     for (final tab in mineTabs) {
       switch (tab) {
         case .favorite:
@@ -119,6 +128,7 @@ class MineController extends GetxController with AccountMixin {
     if (userInfoCache != null) {
       userInfo.value = userInfoCache;
       queryUserInfo();
+      queryData();
       tabCtr().forEach((ctr) => ctr.queryData());
     }
   }
@@ -157,6 +167,49 @@ class MineController extends GetxController with AccountMixin {
     final res = await UserHttp.userStatOwner();
     if (res case Success(:final response)) {
       userStat.value = response;
+    }
+  }
+
+  void onExpandContentChanged(MineExpandContent value) {
+    if (expandContent.value == value) return;
+    expandContent.value = value;
+    loadingState.value = LoadingState<Object>.loading();
+    queryData();
+  }
+
+  @override
+  Future<LoadingState<Object>> customGetData() => _getExpandContent(
+    expandContent.value,
+  );
+
+  Future<LoadingState<Object>> _getExpandContent(
+    MineExpandContent content,
+  ) => switch (content) {
+    .favorite => FavHttp.userfavFolder(
+      pn: 1,
+      ps: 10,
+      mid: Accounts.main.mid,
+    ),
+    .history => UserHttp.historyList(type: 'archive', ps: 10),
+  };
+
+  @override
+  Future<void> queryData([bool isRefresh = true]) async {
+    if (isLoading) return;
+    isLoading = true;
+    final content = expandContent.value;
+    final res = await _getExpandContent(content);
+    if (content == expandContent.value) {
+      if (res is Success<Object>) {
+        loadingState.value = res;
+      } else if (isRefresh && !handleError(res is Error ? res.errMsg : null)) {
+        loadingState.value = res as Error;
+      }
+    }
+    isLoading = false;
+    // A setting change during an in-flight request must not paint stale data.
+    if (!isClosed && content != expandContent.value) {
+      return queryData(isRefresh);
     }
   }
 
@@ -298,6 +351,7 @@ class MineController extends GetxController with AccountMixin {
     }
   }
 
+  @override
   Future<void> onRefresh({bool isManual = true}) {
     if (!accountService.isLogin.value) {
       return Future.syncValue(null);
@@ -305,9 +359,10 @@ class MineController extends GetxController with AccountMixin {
     if (isManual) {
       queryUserInfo();
     }
-    return Future.wait(
-      tabCtr().map((ctr) => ctr.onRefresh(isManual: isManual)),
-    );
+    return Future.wait([
+      if (!hasConfiguredTabs) queryData(),
+      ...tabCtr().map((ctr) => ctr.onRefresh(isManual: isManual)),
+    ]);
   }
 
   @override
@@ -316,11 +371,20 @@ class MineController extends GetxController with AccountMixin {
       onRefresh();
     } else {
       userInfo.value = UserInfoData();
+      loadingState.value = LoadingState.loading();
       userStat.value = const UserStat();
       tabCtr().forEach(
         (ctr) => ctr.loadingState.value = LoadingState.loading(),
       );
     }
+  }
+
+  @override
+  void onClose() {
+    for (final ctr in tabCtr()) {
+      ctr.onDelete();
+    }
+    super.onClose();
   }
 }
 

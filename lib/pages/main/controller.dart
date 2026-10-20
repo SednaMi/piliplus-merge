@@ -59,6 +59,7 @@ class MainController extends GetxController
 
   final enableMYBar = Pref.enableMYBar;
   final floatingNavBar = Pref.floatingNavBar;
+  final miuixBackdropSampling = Pref.miuixBackdropSampling;
   final useSideBar = Pref.useSideBar;
   final mainTabBarView = Pref.mainTabBarView;
   late final optTabletNav = Pref.optTabletNav;
@@ -207,6 +208,15 @@ class MainController extends GetxController
   void setDynCount([int count = 0]) {
     if (!hasDyn) return;
     dynCount.value = count;
+  }
+
+  void setDynamicBadgeMode(DynamicBadgeMode value) {
+    if (dynamicBadgeMode == value) return;
+    dynamicBadgeMode = value;
+    // The Flutter and native navigation bars both observe this count. Refresh
+    // it when only the display mode changed so a number can become a dot (or
+    // disappear) without waiting for the next network poll.
+    dynCount.refresh();
   }
 
   void checkUnreadDynamic() {

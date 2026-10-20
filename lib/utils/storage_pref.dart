@@ -10,6 +10,9 @@ import 'package:PiliPlus/models/common/dynamic/dynamics_type.dart';
 import 'package:PiliPlus/models/common/dynamic/up_panel_position.dart';
 import 'package:PiliPlus/models/common/follow_order_type.dart';
 import 'package:PiliPlus/models/common/member/tab_type.dart';
+import 'package:PiliPlus/models/common/mine_expand_content.dart';
+import 'package:PiliPlus/models/common/app_icon_style.dart';
+import 'package:PiliPlus/models/common/glass_material_tuning.dart';
 import 'package:PiliPlus/models/common/mine_tab_type.dart';
 import 'package:PiliPlus/models/common/msg/msg_unread_type.dart';
 import 'package:PiliPlus/models/common/nav_bar_config.dart';
@@ -43,7 +46,6 @@ import 'package:PiliPlus/utils/storage.dart';
 import 'package:PiliPlus/utils/storage_key.dart';
 import 'package:PiliPlus/utils/utils.dart';
 import 'package:crypto/crypto.dart';
-import 'package:flex_seed_scheme/flex_seed_scheme.dart' show FlexSchemeVariant;
 import 'package:flutter/foundation.dart';
 import 'package:get/get.dart';
 import 'package:hive_ce/hive.dart';
@@ -175,6 +177,15 @@ abstract final class Pref {
 
   static NavigationBarType get defaultHomePage =>
       NavigationBarType.values[defaultHomePageIndex];
+
+  static MineExpandContent get mineExpandContent =>
+      MineExpandContent.values[_setting.get(
+        SettingBoxKey.mineExpandContent,
+        defaultValue: MineExpandContent.history.index,
+      )];
+
+  static set mineExpandContent(MineExpandContent value) =>
+      _setting.put(SettingBoxKey.mineExpandContent, value.index);
 
   static int get defaultHomePageIndex => _setting.get(
     SettingBoxKey.defaultHomePage,
@@ -346,12 +357,6 @@ abstract final class Pref {
 
   static int get dynamicPeriod =>
       _setting.get(SettingBoxKey.dynamicPeriod, defaultValue: 5);
-
-  static FlexSchemeVariant get schemeVariant =>
-      FlexSchemeVariant.values[_setting.get(
-        SettingBoxKey.schemeVariant,
-        defaultValue: FlexSchemeVariant.material3Legacy.index,
-      )];
 
   static double get danmakuFontScaleFS => _setting.get(
     SettingBoxKey.danmakuFontScaleFS,
@@ -572,13 +577,15 @@ abstract final class Pref {
   );
 
   static FontWeight get appFontWeight {
+    final int? precise = _setting.get(SettingBoxKey.appFontWeightValue);
+    if (precise != null) return FontWeight(precise.clamp(100, 900));
     // TODO: remove next 2 version
     const appFontWeightV1 = 'appFontWeight';
     final int? valV1 = _setting.get(appFontWeightV1);
     if (valV1 != null) {
       _setting.delete(appFontWeightV1);
       if (valV1 == -1) {
-        return .normal;
+        return const FontWeight(350);
       } else {
         _setting.put(SettingBoxKey.appFontWeightV2, valV1);
         return .values[valV1];
@@ -587,7 +594,7 @@ abstract final class Pref {
 
     final int? val = _setting.get(SettingBoxKey.appFontWeightV2);
     if (val == null) {
-      return .normal;
+      return const FontWeight(350);
     }
     return .values[val];
   }
@@ -731,10 +738,6 @@ abstract final class Pref {
 
   static int get customColor =>
       _setting.get(SettingBoxKey.customColor, defaultValue: 0);
-
-  static bool get dynamicColor =>
-      !Platform.isIOS &&
-      _setting.get(SettingBoxKey.dynamicColor, defaultValue: true);
 
   static bool get enableSystemProxy =>
       _setting.get(SettingBoxKey.enableSystemProxy, defaultValue: false);
@@ -1074,7 +1077,28 @@ abstract final class Pref {
       _setting.get(SettingBoxKey.saveReply, defaultValue: true);
 
   static bool get floatingNavBar =>
-      _setting.get(SettingBoxKey.floatingNavBar, defaultValue: false);
+      _setting.get(SettingBoxKey.floatingNavBar, defaultValue: true);
+
+  static AppIconStyle get appIconStyle => AppIconStyle.fromId(
+    _setting.get(SettingBoxKey.appIconStyle),
+  );
+
+  static double get glassBlurRadius => GlassMaterialTuning.normalize(
+    _setting.get(SettingBoxKey.glassBlurRadius),
+  );
+
+  static double get floatingNavBottomLift => (_setting.get(
+    SettingBoxKey.floatingNavBottomLift,
+    defaultValue: 0.0,
+  ) as num).toDouble().clamp(0.0, 48.0);
+
+  static bool get followMyHyperModifierNavigationLift => _setting.get(
+    SettingBoxKey.followMyHyperModifierNavigationLift,
+    defaultValue: false,
+  );
+
+  static bool get miuixBackdropSampling =>
+      _setting.get(SettingBoxKey.miuixBackdropSampling, defaultValue: false);
 
   static bool get removeSafeArea =>
       _setting.get(SettingBoxKey.removeSafeArea, defaultValue: false);

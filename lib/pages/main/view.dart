@@ -9,7 +9,7 @@ import 'package:PiliPlus/common/widgets/route_aware_mixin.dart';
 import 'package:PiliPlus/models/common/nav_bar_config.dart';
 import 'package:PiliPlus/pages/home/view.dart';
 import 'package:PiliPlus/pages/main/controller.dart';
-import 'package:PiliPlus/utils/android/bindings.g.dart';
+import 'package:PiliPlus/utils/android/android_helper.dart';
 import 'package:PiliPlus/utils/app_scheme.dart';
 import 'package:PiliPlus/utils/desktop/tray_controller.dart';
 import 'package:PiliPlus/utils/desktop/window_controller.dart';
@@ -19,6 +19,7 @@ import 'package:PiliPlus/utils/extension/theme_ext.dart';
 import 'package:PiliPlus/utils/mobile_observer.dart';
 import 'package:PiliPlus/utils/platform_utils.dart';
 import 'package:PiliPlus/utils/storage.dart';
+import 'package:PiliPlus/utils/storage_pref.dart';
 import 'package:flutter/services.dart';
 import 'package:get/get.dart';
 import 'package:material_ui/material_ui.dart';
@@ -37,6 +38,7 @@ class _MainAppState extends PopScopeState<MainApp>
   late EdgeInsets _padding;
   late ColorScheme _colorScheme;
   Brightness? _brightness;
+  bool _isMainRouteActive = true;
 
   @override
   bool get initCanPop => false;
@@ -44,6 +46,9 @@ class _MainAppState extends PopScopeState<MainApp>
   @override
   void initState() {
     super.initState();
+    if (Platform.isAndroid) {
+      PiliAndroidHelper.setMiuixDestinationHandler(_mainController.setIndex);
+    }
     addObserverMobile(this);
     if (Platform.isMacOS) {
       HardwareKeyboard.instance.addHandler(_handleKeyEvent);
@@ -80,16 +85,24 @@ class _MainAppState extends PopScopeState<MainApp>
 
   @override
   void didPopNext() {
+    _isMainRouteActive = true;
     addObserverMobile(this);
     _mainController
       ..checkUnreadDynamic()
       ..checkDefaultSearch(true)
       ..checkUnread(_mainController.useBottomNav);
+    if (Platform.isAndroid && mounted) {
+      setState(() {});
+    }
     super.didPopNext();
   }
 
   @override
   void didPushNext() {
+    _isMainRouteActive = false;
+    if (Platform.isAndroid) {
+      PiliAndroidHelper.hideMiuixNavigation();
+    }
     removeObserverMobile(this);
     super.didPushNext();
   }
@@ -106,6 +119,10 @@ class _MainAppState extends PopScopeState<MainApp>
 
   @override
   void dispose() {
+    if (Platform.isAndroid) {
+      PiliAndroidHelper.setMiuixDestinationHandler(null);
+      PiliAndroidHelper.hideMiuixNavigation();
+    }
     if (Platform.isMacOS) {
       HardwareKeyboard.instance.removeHandler(_handleKeyEvent);
     }
@@ -129,7 +146,7 @@ class _MainAppState extends PopScopeState<MainApp>
   @pragma('vm:prefer-inline')
   static void _onBack() {
     if (Platform.isAndroid) {
-      AndroidHelper.back();
+      PiliAndroidHelper.back();
     }
   }
 
@@ -152,6 +169,9 @@ class _MainAppState extends PopScopeState<MainApp>
 
   Widget? get _bottomNav {
     Widget? bottomNav;
+    if (_usesNativeMiuixNavigation) {
+      return null;
+    }
     if (_mainController.navigationBars.length > 1) {
       if (_mainController.floatingNavBar) {
         bottomNav = Obx(
@@ -235,6 +255,70 @@ class _MainAppState extends PopScopeState<MainApp>
 
     return bottomNav;
   }
+
+  bool get _usesNativeMiuixNavigation =>
+      Platform.isAndroid &&
+      _isMainRouteActive &&
+      _mainController.useBottomNav &&
+      _mainController.floatingNavBar &&
+      _mainController.navigationBars.length > 1;
+
+  bool get _nativeNavigationVisible {
+    if (!_mainController.hideBottomBar) return true;
+    if (_mainController.barOffset case final barOffset?) {
+      return barOffset.value == 0;
+    }
+    return _mainController.showBottomBar?.value ?? true;
+  }
+
+  Widget _nativeMiuixNavigationSync() => Obx(() {
+    final selectedIndex = _mainController.selectedIndex.value;
+    final visible = _nativeNavigationVisible;
+    final dynCount = _mainController.dynCount.value;
+    final dynamicBadgeMode = _mainController.dynamicBadgeMode;
+    final destinations = _mainController.navigationBars
+        .map(
+          (item) => <String, Object?>{
+            'key': item.name,
+            'label': item.label,
+            // Keep the native glass bar in lockstep with Flutter's bottom
+            // navigation badge: an empty label represents the red-dot mode.
+            'badge':
+                item == .dynamics && dynCount > 0 && dynamicBadgeMode != .hidden
+                ? dynamicBadgeMode == .number
+                      ? dynCount.toString()
+                      : ''
+                : null,
+          },
+        )
+        .toList(growable: false);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      PiliAndroidHelper.updateMiuixNavigation(
+        destinations: destinations,
+        selectedIndex: selectedIndex,
+        visible: visible && _usesNativeMiuixNavigation,
+        dark: _colorScheme.brightness.isDark,
+        primary: _colorScheme.primary.toARGB32(),
+        background: _colorScheme.surfaceContainerLowest.toARGB32(),
+        surface: _colorScheme.surface.toARGB32(),
+        surfaceContainer: _colorScheme.surfaceContainer.toARGB32(),
+        onSurface: _colorScheme.onSurface.toARGB32(),
+        outline: _colorScheme.outline.toARGB32(),
+        // Compose cannot record Flutter's SurfaceView into a LayerBackdrop.
+        // The Android bridge therefore imports only the small region behind
+        // the bar on touch motion and completed Flutter frames, including
+        // refresh/image updates, without adding a Flutter overlay.
+        backdropSampling: true,
+        backdropDebug: _mainController.miuixBackdropSampling,
+        bottomLiftDp: Pref.floatingNavBottomLift,
+        glassBlurRadius: Pref.glassBlurRadius,
+        followMyHyperModifierNavigationLift:
+            Pref.followMyHyperModifierNavigationLift,
+      );
+    });
+    return const SizedBox.shrink();
+  });
 
   Widget _sideBar() {
     if (_mainController.navigationBars.length > 1) {
@@ -323,6 +407,12 @@ class _MainAppState extends PopScopeState<MainApp>
 
     Widget? sideBar;
     Widget? bottomNav;
+    final useNativeMiuixNavigation = _usesNativeMiuixNavigation;
+    if (Platform.isAndroid && !useNativeMiuixNavigation) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) PiliAndroidHelper.hideMiuixNavigation();
+      });
+    }
     final EdgeInsets padding;
     if (_mainController.useBottomNav) {
       bottomNav = _bottomNav;
@@ -349,10 +439,16 @@ class _MainAppState extends PopScopeState<MainApp>
     }
 
     child = Material(
-      child: MainLayout(
-        sideBar: sideBar,
-        bottomNav: bottomNav,
-        body: Padding(padding: padding, child: child),
+      color: _colorScheme.surface,
+      child: Stack(
+        children: [
+          MainLayout(
+            sideBar: sideBar,
+            bottomNav: bottomNav,
+            body: Padding(padding: padding, child: child),
+          ),
+          if (useNativeMiuixNavigation) _nativeMiuixNavigationSync(),
+        ],
       ),
     );
 
@@ -380,7 +476,8 @@ class _MainAppState extends PopScopeState<MainApp>
             () {
               final dynCount = _mainController.dynCount.value;
               return Badge(
-                isLabelVisible: dynCount > 0,
+                isLabelVisible:
+                    dynCount > 0 && _mainController.dynamicBadgeMode != .hidden,
                 label: _mainController.dynamicBadgeMode == .number
                     ? Text(dynCount.toString())
                     : null,

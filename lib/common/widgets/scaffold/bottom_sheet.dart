@@ -20,10 +20,12 @@ class BottomSheet_ extends BottomSheet {
   final double dragHeight;
 
   @override
-  BottomSheetState<BottomSheet_> createState() => _MiniBottomSheetState();
+  BottomSheetState createState() => _MiniBottomSheetState();
 }
 
-class _MiniBottomSheetState extends BottomSheetState<BottomSheet_> {
+class _MiniBottomSheetState extends BottomSheetState {
+  @override
+  BottomSheet_ get widget => super.widget as BottomSheet_;
   _VerticalDragGestureRecognizer? _verticalDragGestureRecognizer;
 
   _VerticalDragGestureRecognizer get verticalDragGestureRecognizer =>

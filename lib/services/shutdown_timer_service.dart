@@ -2,6 +2,7 @@
 
 import 'dart:async' show Timer;
 
+import 'package:PiliPlus/common/widgets/miuix_switch.dart';
 import 'package:PiliPlus/models/common/enum_with_label.dart';
 import 'package:PiliPlus/pages/video/introduction/ugc/widgets/menu_row.dart';
 import 'package:PiliPlus/plugin/pl_player/controller.dart';
@@ -309,13 +310,9 @@ class ShutdownTimerService {
                         dense: true,
                         onTap: onChanged,
                         title: const Text('额外等待视频播放完毕', style: titleStyle),
-                        trailing: Transform.scale(
-                          alignment: .centerRight,
-                          scale: 0.8,
-                          child: Switch(
-                            value: _waitUntilCompleted,
-                            onChanged: onChanged,
-                          ),
+                        trailing: PiliMiuixSwitch(
+                          value: _waitUntilCompleted,
+                          onChanged: onChanged,
                         ),
                       );
                     },

@@ -4,6 +4,8 @@ import 'package:PiliPlus/build_config.dart';
 import 'package:PiliPlus/common/constants.dart';
 import 'package:PiliPlus/common/widgets/back_detector.dart';
 import 'package:PiliPlus/common/widgets/custom_toast.dart';
+import 'package:PiliPlus/common/widgets/native_feedback.dart';
+import 'package:PiliPlus/common/widgets/native_navigation_occlusion.dart';
 import 'package:PiliPlus/common/widgets/route_aware_mixin.dart';
 import 'package:PiliPlus/common/widgets/scale_app.dart';
 import 'package:PiliPlus/common/widgets/scroll_behavior.dart';
@@ -17,11 +19,11 @@ import 'package:PiliPlus/services/logger.dart';
 import 'package:PiliPlus/services/service_locator.dart';
 import 'package:PiliPlus/utils/cache_manager.dart';
 import 'package:PiliPlus/utils/date_utils.dart';
-import 'package:PiliPlus/utils/desktop/calc_window_position.dart';
-import 'package:PiliPlus/utils/device_utils.dart';
-import 'package:PiliPlus/utils/extension/core_palettes_ext.dart';
 import 'package:PiliPlus/utils/extension/theme_ext.dart';
 import 'package:PiliPlus/utils/font_utils.dart';
+import 'package:PiliPlus/utils/freeform_window_insets.dart';
+import 'package:PiliPlus/utils/desktop/calc_window_position.dart';
+import 'package:PiliPlus/utils/device_utils.dart';
 import 'package:PiliPlus/utils/ios/pip_helper.dart';
 import 'package:PiliPlus/utils/json_file_handler.dart';
 import 'package:PiliPlus/utils/max_screen_size.dart';
@@ -35,7 +37,6 @@ import 'package:PiliPlus/utils/theme_utils.dart';
 import 'package:PiliPlus/utils/utils.dart';
 import 'package:catcher_2/catcher_2.dart';
 import 'package:collection/collection.dart';
-import 'package:dynamic_color/dynamic_color.dart' show DynamicColorPlugin;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_displaymode/flutter_displaymode.dart';
@@ -169,10 +170,6 @@ void main() async {
     }
   }
 
-  if (Pref.dynamicColor) {
-    await MyApp.initPlatformState();
-  }
-
   if (Pref.enableLog) {
     // 异常捕获 logo记录
     final customParameters = {
@@ -251,35 +248,15 @@ void _onBack() {
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
-  static ColorScheme? _light, _dark;
-
   static (ThemeData, ThemeData) getAllTheme() {
-    final dynamicColor = _light != null && _dark != null && Pref.dynamicColor;
-
-    final ColorScheme lightScheme, darkScheme;
-    if (dynamicColor) {
-      lightScheme = _light!;
-      darkScheme = _dark!;
-    } else {
-      final customColor = Pref.customColor;
-      final brandColor =
-          colorThemeTypes.elementAtOrNull(customColor)?.color ??
-          Color(customColor);
-      final variant = Pref.schemeVariant;
-
-      lightScheme = brandColor.asColorSchemeSeed(variant, .light);
-      darkScheme = brandColor.asColorSchemeSeed(variant, .dark);
-    }
-
+    final preset = colorThemeTypes[Pref.customColor];
     return (
       ThemeUtils.lightTheme = ThemeUtils.getThemeData(
-        colorScheme: lightScheme,
-        isDynamic: dynamicColor,
+        colorScheme: preset.lightColor.asMiuixPresetColorScheme(.light),
       ),
       ThemeUtils.darkTheme = ThemeUtils.getThemeData(
         isDark: true,
-        colorScheme: darkScheme,
-        isDynamic: dynamicColor,
+        colorScheme: preset.darkColor.asMiuixPresetColorScheme(.dark),
       ),
     );
   }
@@ -300,15 +277,22 @@ class MyApp extends StatelessWidget {
       getPages: Routes.getPages,
       defaultTransition: Pref.pageTransition,
       builder: FlutterSmartDialog.init(
-        toastBuilder: CustomToast.new,
-        loadingBuilder: LoadingWidget.new,
-        notifyStyle: const FlutterSmartNotifyStyle(
-          warningBuilder: NotifyWarning.new,
+        toastBuilder: (msg) => NativeTextToast(
+          key: ValueKey(msg),
+          message: msg,
+          fallback: (_) => CustomToast(msg),
+        ),
+        loadingBuilder: (msg) =>
+            NativeNavigationForeground(child: LoadingWidget(msg)),
+        notifyStyle: FlutterSmartNotifyStyle(
+          warningBuilder: (msg) =>
+              NativeNavigationForeground(child: NotifyWarning(msg)),
         ),
         builder: _builder,
       ),
       navigatorObservers: [
         routeObserver,
+        NativeNavigationPopupObserver(),
         FlutterSmartDialog.observer,
       ],
       scrollBehavior: PlatformUtils.isDesktop
@@ -320,15 +304,27 @@ class MyApp extends StatelessWidget {
   static Widget _builder(BuildContext context, Widget? child) {
     final uiScale = Pref.uiScale;
     final mediaQuery = MediaQuery.of(context);
+    final (padding, viewPadding) = Platform.isAndroid
+        ? (
+            FreeformWindowInsets.normalize(
+              insets: mediaQuery.padding,
+              viewSize: mediaQuery.size,
+            ),
+            FreeformWindowInsets.normalize(
+              insets: mediaQuery.viewPadding,
+              viewSize: mediaQuery.size,
+            ),
+          )
+        : (mediaQuery.padding, mediaQuery.viewPadding);
     final textScaler = TextScaler.linear(Pref.defaultTextScale);
     if (uiScale != 1.0) {
       child = MediaQuery(
         data: mediaQuery.copyWith(
           textScaler: textScaler,
           size: mediaQuery.size / uiScale,
-          padding: tmpPadding ?? mediaQuery.padding / uiScale,
+          padding: tmpPadding ?? padding / uiScale,
           viewInsets: mediaQuery.viewInsets / uiScale,
-          viewPadding: tmpPadding ?? mediaQuery.viewPadding / uiScale,
+          viewPadding: tmpPadding ?? viewPadding / uiScale,
           devicePixelRatio: mediaQuery.devicePixelRatio * uiScale,
         ),
         child: child!,
@@ -337,8 +333,8 @@ class MyApp extends StatelessWidget {
       child = MediaQuery(
         data: mediaQuery.copyWith(
           textScaler: textScaler,
-          padding: tmpPadding,
-          viewPadding: tmpPadding,
+          padding: tmpPadding ?? padding,
+          viewPadding: tmpPadding ?? viewPadding,
         ),
         child: child!,
       );
@@ -350,54 +346,6 @@ class MyApp extends StatelessWidget {
       );
     }
     return child;
-  }
-
-  /// from [DynamicColorBuilderState.initPlatformState]
-  static Future<bool> initPlatformState() async {
-    if (_light != null || _dark != null) return true;
-    // Platform messages may fail, so we use a try/catch PlatformException.
-    try {
-      final colors = await DynamicColorPlugin.channel.invokeMethod(
-        DynamicColorPlugin.methodName,
-      );
-
-      if (colors != null) {
-        final corePalettes = CorePalettesExt.fromList(colors.toList());
-        if (kDebugMode) {
-          debugPrint('dynamic_color: Core palette detected.');
-        }
-        _light = corePalettes.toColorScheme();
-        _dark = corePalettes.toColorScheme(brightness: Brightness.dark);
-        return true;
-      }
-    } on PlatformException {
-      if (kDebugMode) {
-        debugPrint('dynamic_color: Failed to obtain core palette.');
-      }
-    }
-
-    try {
-      final Color? accentColor = await DynamicColorPlugin.getAccentColor();
-
-      if (accentColor != null) {
-        if (kDebugMode) {
-          debugPrint('dynamic_color: Accent color detected.');
-        }
-        final variant = Pref.schemeVariant;
-        _light = accentColor.asColorSchemeSeed(variant, .light);
-        _dark = accentColor.asColorSchemeSeed(variant, .dark);
-        return true;
-      }
-    } on PlatformException {
-      if (kDebugMode) {
-        debugPrint('dynamic_color: Failed to obtain accent color.');
-      }
-    }
-    if (kDebugMode) {
-      debugPrint('dynamic_color: Dynamic color not detected on this device.');
-    }
-    GStorage.setting.put(SettingBoxKey.dynamicColor, false);
-    return false;
   }
 }
 

@@ -72,7 +72,8 @@ void showReplyCopyDialog(
                 ),
               );
             }
-            return AdaptiveTextSelectionToolbar.buttonItems(
+            return NativeSelectionToolbar(
+              onDismiss: state.hideToolbar,
               buttonItems: buttonItems,
               anchors: state.contextMenuAnchors,
             );

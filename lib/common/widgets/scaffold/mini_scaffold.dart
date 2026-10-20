@@ -189,12 +189,12 @@ class _StandardBottomSheet extends StandardBottomSheet {
   final double dragHeight;
 
   @override
-  StandardBottomSheetState<_StandardBottomSheet> createState() =>
-      _StandardBottomSheetState();
+  StandardBottomSheetState createState() => _StandardBottomSheetState();
 }
 
-class _StandardBottomSheetState
-    extends StandardBottomSheetState<_StandardBottomSheet> {
+class _StandardBottomSheetState extends StandardBottomSheetState {
+  @override
+  _StandardBottomSheet get widget => super.widget as _StandardBottomSheet;
   @override
   Widget build(BuildContext context) {
     final child = BottomSheet_(

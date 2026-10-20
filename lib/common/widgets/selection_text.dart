@@ -1,5 +1,6 @@
 import 'package:PiliPlus/utils/extension/selectable_region_ext.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:PiliPlus/common/widgets/native_selection_toolbar.dart';
 
 class SelectionText extends StatelessWidget {
   const SelectionText(
@@ -43,7 +44,8 @@ class SelectionText extends StatelessWidget {
 Widget openUrlMenuBuilder(_, SelectableRegionState state) {
   final buttonItems = state.contextMenuButtonItems;
   state.addLaunchMenuIfNeeded(buttonItems, index: 3);
-  return AdaptiveTextSelectionToolbar.buttonItems(
+  return NativeSelectionToolbar(
+    onDismiss: state.hideToolbar,
     buttonItems: buttonItems,
     anchors: state.contextMenuAnchors,
   );
