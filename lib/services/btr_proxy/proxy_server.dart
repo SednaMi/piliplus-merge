@@ -177,17 +177,10 @@ class BtrProxyServer {
     BtrLog.log(
       '[BTR] 代理生命周期: 事件=scheduleStop 端口=${_server?.port ?? 0} 在途=${_activeTokens.length}',
     );
-    // 收到停止指令时广播取消旧视频的在途请求，以便在延迟期内自然退出并归零
-    for (final token in List.of(_activeTokens)) {
-      try {
-        token.cancel('收到停止指令 (scheduleStop)');
-      } catch (_) {}
-    }
-    for (final downloader in _downloaderCache.values) {
-      try {
-        downloader.cancelAll('收到停止指令 (scheduleStop)');
-      } catch (_) {}
-    }
+    // ⚠️ 这里绝对不能立刻广播取消在途请求：本函数在旧播放页 onClose 时调用，而新视频
+    // 的请求可能已经到达（相关视频连点、历史直进、快速换清晰度）。排程即取消会把
+    // 新视频刚建立的流一起掐死 → 真机表现为切视频起播黑屏/播放失败。
+    // 取消在途只在真正停止时做（stop() 内部有广播 + 3 秒宽限期）。
     _scheduledStopTimer = Timer(delay, () {
       _scheduledStopTimer = null;
       stop(force: false);
@@ -1511,6 +1504,57 @@ class BtrProxyServer {
     return 502;
   }
 
+  /// 申请 Socket 预算，最多等待 [timeout]。
+  ///
+  /// ⚠️ 这里不能写成 `acquireSocket(...).timeout(2s, onTimeout: () => () {})`：
+  /// 一旦超时，排队条目仍留在 `PrioritySemaphore._queue` 里，稍后被 `_drain()`
+  /// 放行时会把真实的 release 回调交给一个没人监听的 completer → `_active`
+  /// 只增不减 → 后续所有分块永久排队（真机表现：播放永久转圈，重启才恢复）。
+  ///
+  /// 正确做法两步：
+  /// 1. 排队用**独立子令牌**（超时取消它即可把条目从队列里摘掉）；
+  /// 2. 兜底：若超时与放行恰好同时发生（槽位已经拿到），这个迟到的 release
+  ///    必须立刻归还，不能丢。
+  Future<void Function()?> _acquireSocketOrGiveUp(
+    MultiRangeDownloader? downloader,
+    CancellationToken token, {
+    required String caller,
+    Duration timeout = const Duration(milliseconds: 2000),
+  }) async {
+    if (downloader == null) return null;
+    final slotToken = CancellationToken();
+    void forwardParentCancel() {
+      if (!slotToken.isCancelled) {
+        slotToken.cancel(token.reason ?? 'parent cancelled');
+      }
+    }
+
+    token.addListener(forwardParentCancel);
+    final pending = downloader.acquireSocket(
+      slotToken,
+      priority: 150,
+      caller: caller,
+    );
+    try {
+      return await pending.timeout(timeout);
+    } on TimeoutException {
+      slotToken.cancel('预算申请超时 ${timeout.inMilliseconds}ms');
+      unawaited(
+        pending.then<void>(
+          (late) => late(),
+          onError: (Object _) {},
+        ),
+      );
+      BtrLog.rateLimitedLog(
+        'socket_acquire_timeout',
+        '[BTR] Socket 预算申请超时 ${timeout.inMilliseconds}ms（来源=$caller），本次不占槽位继续',
+      );
+      return null;
+    } finally {
+      token.removeListener(forwardParentCancel);
+    }
+  }
+
   /// 单连接顺序透传降级：直接将原始 URL 的响应流按原样转发给客户端（不带并发）
   /// 注意：内部不调用 clientRequest.response.close()，由外层 finally 统一负责关闭
   Future<void> _passthrough({
@@ -1526,11 +1570,14 @@ class BtrProxyServer {
     Duration stallTimeout = RangeCore.stallTimeout,
   }) async {
     token.throwIfCancelled();
-    final release = downloader != null
-        ? await downloader
-            .acquireSocket(token, priority: 150, caller: 'proxy_passthrough')
-            .timeout(const Duration(milliseconds: 2000), onTimeout: () => () {})
-        : null;
+    // ⚠️ 不能对 acquireSocket 直接用 .timeout(onTimeout: 空回调)：超时后排队条目仍留在
+    // 信号量队列里，稍后被 _drain 放行时会拿到没人调用的 release → _active 只增不减
+    // → 后续分块永久排队（真机表现为播放永久转圈）。统一走 _acquireSocketOrGiveUp。
+    final release = await _acquireSocketOrGiveUp(
+      downloader,
+      token,
+      caller: 'proxy_passthrough',
+    );
     HttpClientRequest? currentReq;
     void onCancel() {
       try {
@@ -1686,8 +1733,21 @@ class BtrProxyServer {
           if (tail.isNotEmpty && tail != '*') {
             final parsed = int.tryParse(tail);
             if (parsed != null && parsed > 0) {
-              total = parsed;
-              pool?.checkTotalLengthConsistency(total, BtrLog.hostOf(targetUrl));
+              final consistent = pool?.checkTotalLengthConsistency(
+                    parsed,
+                    BtrLog.hostOf(targetUrl),
+                  ) ??
+                  true;
+              if (consistent) {
+                total = parsed;
+              } else {
+                // 顶头兜底时若该节点总长与主池基准不一致，不能把这个 total 写进
+                // 总长缓存并发给播放器（否则进度条/Seek 会按错的总长算）。
+                BtrLog.rateLimitedLog(
+                  'primer_total_mismatch',
+                  '[BTR] 顶头节点总长不一致，已忽略: host=${BtrLog.hostOf(targetUrl)} total=$parsed 基准=${pool?.verifiedTotalLength}',
+                );
+              }
             }
           }
         }
@@ -1738,11 +1798,12 @@ class BtrProxyServer {
     Duration stallTimeout = RangeCore.stallTimeout,
   }) async {
     token.throwIfCancelled();
-    final release = downloader != null
-        ? await downloader
-            .acquireSocket(token, priority: 150, caller: 'stream_direct')
-            .timeout(const Duration(milliseconds: 2000), onTimeout: () => () {})
-        : null;
+    // 同上：超时必须真正出队，否则槽位被幽灵请求永久占用。
+    final release = await _acquireSocketOrGiveUp(
+      downloader,
+      token,
+      caller: 'stream_direct',
+    );
     HttpClientRequest? currentReq;
     void onCancel() {
       try {

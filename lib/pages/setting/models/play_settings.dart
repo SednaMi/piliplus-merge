@@ -7,12 +7,13 @@ import 'package:PiliPlus/models/common/super_chat_type.dart';
 import 'package:PiliPlus/models/common/super_resolution_type.dart';
 import 'package:PiliPlus/models/common/video/subtitle_pref_type.dart';
 import 'package:PiliPlus/pages/setting/models/model.dart';
-import 'package:PiliPlus/pages/setting/pages/fullscreen_sc_size.dart';
+import 'package:PiliPlus/pages/setting/pages/fullscreen_sc.dart';
 import 'package:PiliPlus/pages/setting/widgets/select_dialog.dart';
 import 'package:PiliPlus/pages/setting/widgets/slider_dialog.dart';
 import 'package:PiliPlus/plugin/pl_player/models/bottom_progress_behavior.dart';
 import 'package:PiliPlus/plugin/pl_player/models/fullscreen_mode.dart';
 import 'package:PiliPlus/plugin/pl_player/models/play_repeat.dart';
+import 'package:PiliPlus/plugin/pl_player/models/player_control_layout.dart';
 import 'package:PiliPlus/services/service_locator.dart';
 import 'package:PiliPlus/utils/android/android_helper.dart';
 import 'package:PiliPlus/utils/desktop/window_controller.dart';
@@ -29,6 +30,15 @@ import 'package:material_design_icons_flutter/material_design_icons_flutter.dart
 import 'package:material_ui/material_ui.dart';
 
 List<SettingsModel> get playSettings => [
+  PopupModel(
+    title: '播放器布局',
+    leading: const Icon(Icons.view_compact_outlined),
+    value: () => Pref.playerControlLayout,
+    items: PlayerControlLayout.values,
+    onSelected: (value, setState) => GStorage.setting
+        .put(SettingBoxKey.playerControlLayout, value.name)
+        .whenComplete(setState),
+  ),
   NormalModel(
     onTap: (context, setState) => Get.toNamed('/playSpeedSet'),
     leading: const Icon(Icons.speed_outlined),
@@ -104,6 +114,12 @@ List<SettingsModel> get playSettings => [
     title: '左右侧滑动调节亮度/音量',
     leading: Icon(MdiIcons.tuneVerticalVariant),
     setKey: SettingBoxKey.enableSlideVolumeBrightness,
+    defaultVal: true,
+  ),
+  const SwitchModel(
+    title: '滚轮调节音量',
+    leading: Icon(Icons.mouse_outlined),
+    setKey: SettingBoxKey.enableScrollVolume,
     defaultVal: true,
   ),
   if (Platform.isAndroid)
@@ -280,10 +296,10 @@ List<SettingsModel> get playSettings => [
         .whenComplete(setState),
   ),
   NormalModel(
-    title: '全屏 SC 大小',
-    subtitle: 'SuperChat (醒目留言) 大小设置',
+    title: '全屏 SuperChat 设置',
+    subtitle: '全屏 SuperChat (醒目留言) 大小、不透明度、缩放设置',
     leading: const Icon(Icons.open_in_full),
-    onTap: (_, _) => Get.to(const FullScreenScSize()),
+    onTap: (_, _) => Get.to(const FullScreenSc()),
   ),
   const SwitchModel(
     title: '竖屏扩大展示',

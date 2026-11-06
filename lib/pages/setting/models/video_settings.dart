@@ -1,11 +1,9 @@
 import 'dart:io';
 
 import 'package:PiliPlus/common/widgets/miuix_switch.dart';
-import 'package:PiliPlus/models/common/video/audio_quality.dart';
+import 'package:PiliPlus/models/common/video/base_quality.dart';
 import 'package:PiliPlus/models/common/video/cdn_type.dart';
-import 'package:PiliPlus/models/common/video/live_quality.dart';
 import 'package:PiliPlus/models/common/video/video_decode_type.dart';
-import 'package:PiliPlus/models/common/video/video_quality.dart';
 import 'package:PiliPlus/pages/setting/models/model.dart';
 import 'package:PiliPlus/pages/setting/widgets/btr_log_page.dart';
 import 'package:PiliPlus/pages/setting/widgets/ordered_multi_select_dialog.dart';
@@ -57,27 +55,6 @@ List<SettingsModel> get videoSettings => [
         '当前使用：${VideoUtils.cdnService.desc}，部分 CDN 可能失效，如无法播放请尝试切换',
     onTap: _showCDNDialog,
   ),
-  NormalModel(
-    title: '直播 CDN 设置',
-    leading: const Icon(MdiIcons.cloudPlusOutline),
-    getSubtitle: () => '当前使用：${Pref.liveCdnUrl ?? "默认"}',
-    onTap: _showLiveCDNDialog,
-  ),
-  const SwitchModel(
-    title: 'CDN 测速',
-    leading: Icon(Icons.speed),
-    subtitle: '测速通过模拟加载视频实现，注意流量消耗，结果仅供参考',
-    setKey: SettingBoxKey.cdnSpeedTest,
-    defaultVal: true,
-  ),
-  SwitchModel(
-    title: '音频不跟随 CDN 设置',
-    subtitle: '直接采用备用 URL，可解决部分视频无声',
-    leading: const Icon(MdiIcons.musicNotePlus),
-    setKey: SettingBoxKey.disableAudioCDN,
-    defaultVal: false,
-    onChanged: (value) => VideoUtils.disableAudioCDN = value,
-  ),
   SwitchModel(
     title: 'BTR 多线程加速',
     subtitle:
@@ -126,6 +103,27 @@ List<SettingsModel> get videoSettings => [
     getSubtitle: () => '查看与导出 BTR 本地运行诊断日志（当前 ${BtrLog.length} 行）',
     onTap: (context, setState) =>
         Get.to(() => const BtrLogPage())?.then((_) => setState()),
+  ),
+  NormalModel(
+    title: '直播 CDN 设置',
+    leading: const Icon(MdiIcons.cloudPlusOutline),
+    getSubtitle: () => '当前使用：${Pref.liveCdnUrl ?? "默认"}',
+    onTap: _showLiveCDNDialog,
+  ),
+  const SwitchModel(
+    title: 'CDN 测速',
+    leading: Icon(Icons.speed),
+    subtitle: '测速通过模拟加载视频实现，注意流量消耗，结果仅供参考',
+    setKey: SettingBoxKey.cdnSpeedTest,
+    defaultVal: true,
+  ),
+  SwitchModel(
+    title: '音频不跟随 CDN 设置',
+    subtitle: '直接采用备用 URL，可解决部分视频无声',
+    leading: const Icon(MdiIcons.musicNotePlus),
+    setKey: SettingBoxKey.disableAudioCDN,
+    defaultVal: false,
+    onChanged: (value) => VideoUtils.disableAudioCDN = value,
   ),
   NormalModel(
     title: '默认画质',

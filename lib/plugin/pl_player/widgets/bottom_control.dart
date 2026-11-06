@@ -2,7 +2,9 @@ import 'package:PiliPlus/common/widgets/progress_bar/audio_video_progress_bar.da
 import 'package:PiliPlus/common/widgets/progress_bar/segment_progress_bar.dart';
 import 'package:PiliPlus/pages/video/controller.dart';
 import 'package:PiliPlus/plugin/pl_player/controller.dart';
+import 'package:PiliPlus/plugin/pl_player/models/player_control_layout.dart';
 import 'package:PiliPlus/plugin/pl_player/view/view.dart';
+import 'package:PiliPlus/plugin/pl_player/widgets/player_control_layout.dart';
 import 'package:PiliPlus/utils/extension/theme_ext.dart';
 import 'package:PiliPlus/utils/feed_back.dart';
 import 'package:PiliPlus/utils/platform_utils.dart';
@@ -14,6 +16,7 @@ class BottomControl extends StatelessWidget {
     super.key,
     required this.maxWidth,
     required this.isFullScreen,
+    required this.animCtr,
     required this.controller,
     required this.buildBottomControl,
     required this.videoDetailController,
@@ -21,8 +24,10 @@ class BottomControl extends StatelessWidget {
 
   final double maxWidth;
   final bool isFullScreen;
+  final AnimationController animCtr;
   final PlPlayerController controller;
-  final Widget Function(Widget progress) buildBottomControl;
+  final Widget Function(Widget progress, PlayerControlLayout layout)
+  buildBottomControl;
   final VideoDetailController videoDetailController;
 
   void onDragStart(ThumbDragDetails duration) {
@@ -33,18 +38,44 @@ class BottomControl extends StatelessWidget {
   void onDragUpdate(ThumbDragDetails duration) {
     if (!controller.isFileSource && controller.showSeekPreview) {
       controller.updatePreviewIndex(duration.seconds);
+      if (controller.hoverDx != null) {
+        controller.hoverDx = duration.localPosition.dx;
+      }
     }
     controller.seekPosition.value = duration.seconds;
   }
 
   void onSeek(int milliseconds) {
     controller
+      ..hoverDx = null
+      ..position.value = milliseconds ~/ 1000
       ..onSeekEnd()
       ..seekTo(Duration(milliseconds: milliseconds), isSeek: false);
   }
 
+  void _onHover(double dx, int seconds) {
+    if (animCtr.isAnimating) return;
+    controller
+      ..hoverDx = dx
+      ..seekPosition.value = seconds
+      ..updatePreviewIndex(seconds);
+  }
+
+  void _onExit() {
+    if (controller.isSeeking.value || controller.hoverDx == null) {
+      return;
+    }
+    controller
+      ..hoverDx = null
+      ..showPreview.value = false
+      ..hideTaskControls();
+  }
+
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) =>
+      PlayerControlLayoutBuilder(builder: _build);
+
+  Widget _build(BuildContext context, PlayerControlLayout layout) {
     final colorScheme = ColorScheme.of(context);
     final primary = colorScheme.isLight
         ? colorScheme.inversePrimary
@@ -52,8 +83,15 @@ class BottomControl extends StatelessWidget {
     final thumbGlowColor = primary.withAlpha(80);
     final bufferedBarColor = primary.withValues(alpha: 0.4);
 
+    final enableHover =
+        PlatformUtils.isDesktop &&
+        controller.showSeekPreview &&
+        !controller.isFileSource;
+
     return Padding(
-      padding: const EdgeInsets.fromLTRB(8, 0, 8, 2),
+      padding: layout == PlayerControlLayout.compact
+          ? const EdgeInsets.fromLTRB(8, 0, 8, 2)
+          : EdgeInsets.zero,
       child: buildBottomControl(
         Obx(
           () => Offstage(
@@ -78,6 +116,8 @@ class BottomControl extends StatelessWidget {
                     onDragStart: onDragStart,
                     onDragUpdate: onDragUpdate,
                     onSeek: onSeek,
+                    onHover: enableHover ? _onHover : null,
+                    onExit: enableHover ? _onExit : null,
                   ),
                 ),
                 if (controller.enableBlock &&
@@ -123,6 +163,7 @@ class BottomControl extends StatelessWidget {
             ),
           ),
         ),
+        layout,
       ),
     );
   }
