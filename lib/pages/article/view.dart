@@ -11,6 +11,7 @@ import 'package:PiliPlus/common/widgets/scaffold/simple_scaffold.dart';
 import 'package:PiliPlus/common/widgets/scroll_physics.dart'
     show tabBarScrollPhysics;
 import 'package:PiliPlus/common/widgets/sliver/sliver_to_box_adapter.dart';
+import 'package:PiliPlus/models/common/dynamic/article_type.dart';
 import 'package:PiliPlus/models/common/image_preview_type.dart';
 import 'package:PiliPlus/models/dynamics/article_content_model.dart' show Pic;
 import 'package:PiliPlus/models/dynamics/result.dart' show DynamicStat, Tribee;
@@ -18,7 +19,7 @@ import 'package:PiliPlus/pages/article/controller.dart';
 import 'package:PiliPlus/pages/article/widgets/article_ops.dart';
 import 'package:PiliPlus/pages/article/widgets/html_render.dart';
 import 'package:PiliPlus/pages/article/widgets/opus_content.dart';
-import 'package:PiliPlus/pages/article/widgets/sliver_list_ext.dart';
+import 'package:PiliPlus/common/widgets/sliver/sliver_reverse.dart';
 import 'package:PiliPlus/pages/article/widgets/sliver_to_box_adapter.dart';
 import 'package:PiliPlus/pages/common/dyn/common_dyn_page.dart';
 import 'package:PiliPlus/pages/dynamics_repost/view.dart';
@@ -31,6 +32,7 @@ import 'package:PiliPlus/utils/grid.dart';
 import 'package:PiliPlus/utils/image_utils.dart';
 import 'package:PiliPlus/utils/num_utils.dart';
 import 'package:PiliPlus/utils/page_utils.dart';
+import 'package:PiliPlus/utils/reply_scheme_helper.dart';
 import 'package:PiliPlus/utils/share_utils.dart';
 import 'package:PiliPlus/utils/utils.dart';
 import 'package:cached_network_image_ce/cached_network_image.dart';
@@ -43,6 +45,39 @@ import 'package:PiliPlus/common/widgets/video_card/video_card_transition.dart';
 
 class ArticlePage extends StatefulWidget {
   const ArticlePage({super.key});
+
+  static Future<void>? toArticlePage({
+    required String id,
+    required ArticleType type,
+    int? rootRpId,
+    int? secondRpId,
+    bool viewComment = false,
+    bool off = false,
+    String? heroTag,
+  }) {
+    final arguments = {
+      'id': id,
+      'type': type,
+      rootRpIdKey: ?rootRpId,
+      secondRpIdKey: ?secondRpId,
+      if (viewComment) 'viewComment': true,
+    };
+    // 带共享转场时走 VideoPageTransitionRoute，其余情况保持命名路由语义
+    if (heroTag != null && hasPendingVideoCardTransition(heroTag)) {
+      return PageUtils.pushDynPage(
+        '/articlePage',
+        heroTag: heroTag,
+        arguments: arguments,
+        off: off,
+      );
+    }
+    return Get.offOrToNamed(
+      '/articlePage',
+      arguments: arguments,
+      off: off,
+      preventDuplicates: false,
+    );
+  }
 
   @override
   State<ArticlePage> createState() => _ArticlePageState();
@@ -66,12 +101,12 @@ class _ArticlePageState extends CommonDynPageState<ArticlePage>
 
   @override
   void initState() {
-    final params = Get.parameters;
+    final args = Get.arguments;
     controller = Get.putOrFind(
       ArticleController.new,
-      tag: params['type']! + params['id']!,
+      tag: (args['type']! as ArticleType).name + args['id']!,
     );
-    if (params.containsKey('viewComment') || controller.rootRpId != null) {
+    if (args.containsKey('viewComment') || controller.rootRpId != null) {
       _centerKey = UniqueKey();
     }
     super.initState();
@@ -240,7 +275,7 @@ class _ArticlePageState extends CommonDynPageState<ArticlePage>
                 ),
               );
             } else {
-              content = SliverListExt.separated(
+              content = SliverListReverse.separated(
                 reverse: reverse,
                 itemCount: res.body!.children.length,
                 itemBuilder: (context, index) {
@@ -257,7 +292,7 @@ class _ArticlePageState extends CommonDynPageState<ArticlePage>
             content = const SliverToBoxAdapter(child: Text('NULL'));
           }
 
-          final isOpus = controller.type != 'read';
+          final isOpus = controller.type == .opus;
 
           return SliverMainAxisGroup(
             slivers: [

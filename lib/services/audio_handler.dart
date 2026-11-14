@@ -87,6 +87,7 @@ class VideoPlayerServiceHandler extends BaseAudioHandler with SeekHandler {
   static final List<MediaItem> _item = [];
   bool enableBackgroundPlay = Pref.enableBackgroundPlay;
 
+  bool Function()? isPlaying;
   Future<void>? Function()? onPlay;
   Future<void>? Function()? onPause;
   Future<void>? Function(Duration position)? onSeek;
@@ -140,7 +141,7 @@ class VideoPlayerServiceHandler extends BaseAudioHandler with SeekHandler {
   @override
   Future<void> seek(Duration position) {
     return onSeek?.call(position) ??
-        PlPlayerController.seekToIfExists(position, isSeek: false) ??
+        PlPlayerController.seekToIfExists(position) ??
         Future.syncValue(null);
   }
 

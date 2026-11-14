@@ -156,7 +156,6 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   late DataSource dataSource;
 
   Timer? _timer;
-  StreamSubscription? _subForSeek;
 
   Box setting = GStorage.setting;
 
@@ -583,11 +582,8 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     return null;
   }
 
-  static Future<void>? seekToIfExists(
-    Duration position, {
-    bool isSeek = true,
-  }) {
-    return _instance?.seekTo(position, isSeek: isSeek);
+  static Future<void>? seekToIfExists(Duration position) {
+    return _instance?.seekTo(position);
   }
 
   static double? getVolumeIfExists() {
@@ -893,7 +889,11 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     return player;
   }
 
-  late final buffer = Pref.initBuffer(_playbackSpeed.value);
+  // BTR 开启时自动注入抬高后的 mpv 缓冲参数，关闭时保持原样；
+  // 用 getter 使快捷面板切换重载即时生效（与 liveBuffer 隔离，不影响音频页与直播）。
+  Map<String, String> get buffer => Pref.btrEnabled
+      ? Pref.initBtrBuffer(_playbackSpeed.value)
+      : Pref.initBuffer(_playbackSpeed.value);
   late final liveBuffer = Pref.initLiveBuffer();
 
   // 配置播放器
@@ -996,6 +996,17 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   List<StreamSubscription>? _subscriptions;
   final Set<ValueChanged<Duration>> _positionListeners = {};
   final Set<ValueChanged<PlayerStatus>> _statusListeners = {};
+  final Set<ValueChanged<Duration>> _seekListeners = {};
+
+  /// BTR 协同：把所有主动 seek 汇总通知给订阅方（Live 与本地文件除外）。
+  void _notifySeekListeners(Duration position) {
+    if (isLive || isFileSource || _seekListeners.isEmpty) {
+      return;
+    }
+    for (final element in List.of(_seekListeners)) {
+      element(position);
+    }
+  }
 
   Timer? _wakeLockTimer;
 
@@ -1185,46 +1196,19 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     _subscriptions = null;
   }
 
-  void _cancelSubForSeek() {
-    if (_subForSeek != null) {
-      _subForSeek!.cancel();
-      _subForSeek = null;
-    }
-  }
+  /// 跳转至指定位置
+  Future<void> seekTo(Duration position) async {
+    if (_playerCount == 0) return;
 
-  Future<void> seek(Duration position, {bool isSeek = false}) async {
-    if (isSeek) {
-      /// 拖动进度条调节时，不等待第一帧，防止抖动
-      await _videoPlayerController?.stream.buffer.first;
-    }
+    _heartDuration = position.inSeconds;
+
     danmakuController?.clear();
+    _notifySeekListeners(position);
     try {
       await _videoPlayerController?.seek(position);
       _updateIOSPip(position);
     } catch (e) {
       if (kDebugMode) debugPrint('seek failed: $e');
-    }
-  }
-
-  /// 跳转至指定位置
-  Future<void> seekTo(Duration position, {bool isSeek = true}) async {
-    if (_playerCount == 0) {
-      return;
-    }
-    if (position < Duration.zero) {
-      position = Duration.zero;
-    }
-    _heartDuration = position.inSeconds;
-
-    if (duration.value != 0) {
-      seek(position, isSeek: isSeek);
-    } else {
-      // if (kDebugMode) debugPrint('seek duration else');
-      _subForSeek?.cancel();
-      _subForSeek = duration.listen((_) {
-        seek(position, isSeek: isSeek);
-        _cancelSubForSeek();
-      });
     }
   }
 
@@ -1253,10 +1237,10 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   Future<void> play({bool repeat = false, bool hideControls = true}) async {
     if (_playerCount == 0) return;
     // 播放时自动隐藏控制条
-    controls = !hideControls;
+    if (hideControls) controls = false;
     // repeat为true，将从头播放
     if (repeat) {
-      await seekTo(Duration.zero, isSeek: false);
+      await seekTo(Duration.zero);
     }
 
     await _videoPlayerController?.play();
@@ -1296,9 +1280,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   }
 
   void onSeekEnd() {
-    if (showSeekPreview) {
-      showPreview.value = false;
-    }
+    hidePreviewIfNeeded();
     hasToasted = false;
     isSeeking.value = false;
     hideTaskControls();
@@ -1408,10 +1390,13 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   // 双击播放、暂停
   Future<void> onDoubleTapCenter() async {
     if (!isLive && isCompleted) {
+      _notifySeekListeners(Duration.zero);
       await videoPlayerController!.seek(Duration.zero);
-      videoPlayerController!.play();
+      await videoPlayerController!.play();
+    } else if (videoPlayerController!.state.playing) {
+      await pause();
     } else {
-      videoPlayerController!.playOrPause();
+      await play(hideControls: false);
     }
   }
 
@@ -1451,7 +1436,6 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   void onForwardBackward(Duration duration) {
     seekTo(
       duration.clamp(Duration.zero, videoPlayerController!.state.duration),
-      isSeek: false,
     ).whenComplete(play);
   }
 
@@ -1587,6 +1571,15 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   void removeStatusLister(ValueChanged<PlayerStatus> listener) =>
       _statusListeners.remove(listener);
 
+  /// BTR 协同：订阅主动 seek（拖动、快进退、章节跳转、系统通知栏等统一入口）。
+  void addSeekListener(ValueChanged<Duration> listener) {
+    if (_playerCount == 0) return;
+    _seekListeners.add(listener);
+  }
+
+  void removeSeekListener(ValueChanged<Duration> listener) =>
+      _seekListeners.remove(listener);
+
   // 记录播放记录
   Future<void>? makeHeartBeat(
     int progress, {
@@ -1680,7 +1673,6 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     // 每次减1，最后销毁
     resetScreenRotation();
     cancelLongPressTimer();
-    _cancelSubForSeek();
     if (!_isCloseAll && _playerCount > 1) {
       _playerCount -= 1;
       _heartDuration = 0;
@@ -1725,6 +1717,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     _removeListeners();
     _positionListeners.clear();
     _statusListeners.clear();
+    _seekListeners.clear();
     _stopWakeLockTimer();
     WakelockPlus.disable();
     if (kDebugMode) {
@@ -1782,8 +1775,19 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     }
   }
 
-  void _clearPreview() {
+  void hidePreviewIfNeeded() {
+    if (showSeekPreview) {
+      hidePreview();
+    }
+  }
+
+  void hidePreview() {
+    hoverDx = null;
     showPreview.value = false;
+  }
+
+  void _clearPreview() {
+    hidePreview();
     previewIndex.value = null;
     videoShot = null;
     for (final i in previewCache.values) {

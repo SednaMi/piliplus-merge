@@ -153,3 +153,5 @@ test*
 !/test/
 !/test/**
 /test/**/__pycache__/
+# BTR 端到端测试用的真实 CDN 直链（带时效签名），只提交 .example
+test/fixtures/media_url.txt

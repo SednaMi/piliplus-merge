@@ -1,7 +1,7 @@
 import 'package:PiliPlus/http/live.dart';
 import 'package:PiliPlus/http/loading_state.dart';
 import 'package:PiliPlus/models/common/live/live_dm_silent_type.dart';
-import 'package:PiliPlus/models_new/live/live_dm_block/shield_user_list.dart';
+import 'package:PiliPlus/models_new/live/live_info_by_user/shield_user_list.dart';
 import 'package:PiliPlus/pages/live_room/controller.dart';
 import 'package:get/get.dart';
 import 'package:material_ui/material_ui.dart';
@@ -42,17 +42,19 @@ class LiveDmBlockController extends GetxController
     final res = await LiveHttp.getLiveInfoByUser(roomId);
     if (res case Success(:final response)) {
       _isLoaded = true;
-      final shieldRules = response?.shieldRules;
+      final shieldInfo = response.shieldInfo;
+      if (shieldInfo == null) return;
+      final shieldRules = shieldInfo.shieldRules;
       level.value = shieldRules?.level ?? 0;
       rank.value = shieldRules?.rank ?? 0;
       verify.value = shieldRules?.verify ?? 0;
       updateValue();
 
-      if (response?.keywordList case final keywordList?) {
-        this.keywordList.addAll(keywordList);
+      if (shieldInfo.keywordList case final list? when list.isNotEmpty) {
+        keywordList.addAll(list);
       }
-      if (response?.shieldUserList case final shieldUserList?) {
-        this.shieldUserList.addAll(shieldUserList);
+      if (shieldInfo.shieldUserList case final list? when list.isNotEmpty) {
+        shieldUserList.addAll(list);
       }
     } else {
       res.toast();
