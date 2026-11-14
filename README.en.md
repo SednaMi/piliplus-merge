@@ -110,6 +110,8 @@ Only one ABI of the same version can be installed at a time — pick by CPU:
 
 Because the package id carries a `.btr` suffix, it **coexists with an installed official PiliPlus**. Older builds of this same package id upgrade in place (same signing key).
 
+> **About in-app "Check for updates"**: in this build it still points at the Hyper-PiliPlus upstream repo, not this one — so it will **not** notify you about releases here, and it may even say "already up to date". To update, watch the [Releases](../../releases) page directly, or use Watch → Custom → Releases on this repo. This pointer will be corrected in the next version.
+
 <br/>
 
 ## Enabling BTR
