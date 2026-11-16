@@ -1456,6 +1456,9 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
 
   @override
   Widget build(BuildContext context) {
+    // 直播间（pages/live_room/view.dart）不注入 videoDetailController，
+    // 所有依赖它的 UI 都必须用这个可空局部量做守卫，禁止裸 `!`。
+    final vod = videoDetailController;
     maxWidth = widget.maxWidth;
     maxHeight = widget.maxHeight;
     final isFullScreen = this.isFullScreen;
@@ -1719,8 +1722,7 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
                     // 直播间不注入 videoDetailController，退化为按视口方向判断，
                     // 与点播页 isPortrait = maxHeight >= maxWidth 的语义保持一致。
                     topSafeArea:
-                        (videoDetailController?.isPortrait ??
-                            maxHeight >= maxWidth) &&
+                        (vod?.isPortrait ?? maxHeight >= maxWidth) &&
                         !isFullScreen,
                     controller: _animationController,
                     isFullScreen: isFullScreen,
@@ -1874,24 +1876,22 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
                         ),
                       ),
                       if (plPlayerController.enableBlock &&
-                          (videoDetailController?.segmentProgressList.isNotEmpty ??
-                              false))
+                          (vod?.segmentProgressList.isNotEmpty ?? false))
                         Positioned(
                           left: 0,
                           right: 0,
                           bottom: 0.75,
                           child: SegmentProgressBar(
-                            segments: videoDetailController!.segmentProgressList,
+                            segments: vod!.segmentProgressList,
                           ),
                         ),
                       if (plPlayerController.showViewPoints &&
-                          (videoDetailController?.viewPointList.isNotEmpty ??
-                              false) &&
-                          videoDetailController!.showVP.value)
+                          (vod?.viewPointList.isNotEmpty ?? false) &&
+                          vod!.showVP.value)
                         Padding(
                           padding: const .only(bottom: 4.25),
                           child: ViewPointSegmentProgressBar(
-                            segments: videoDetailController!.viewPointList,
+                            segments: vod.viewPointList,
                             onSeek: PlatformUtils.isMobile
                                 ? (position) {
                                     if (!plPlayerController
@@ -1903,12 +1903,10 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
                                 : null,
                           ),
                         ),
-                      if (plPlayerController.showDmChart &&
-                          (videoDetailController?.showDmTrendChart.value ??
-                              false))
-                        if (videoDetailController!.dmTrend.value?.dataOrNull
-                            case final list?)
-                          buildDmChart(primary, list, videoDetailController!),
+                      if (vod != null && plPlayerController.showDmChart &&
+                          vod.showDmTrendChart.value)
+                        if (vod.dmTrend.value?.dataOrNull case final list?)
+                          buildDmChart(primary, list, vod),
                     ],
                   ),
                 );
